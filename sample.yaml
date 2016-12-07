@@ -1,0 +1,105 @@
+ports:
+  - name: somedev
+    title: Serial Port
+    port: "192.168.255.209:10010"
+    controls:
+    - name: current
+      title: Current
+      units: A
+      scpiname: CURR
+      type: current
+      writable: true
+    - name: mvoltage
+      title: Measured Voltage
+      units: V
+      scpiname: MEAS:VOLT
+      type: voltage
+    - name: mcurr
+      title: Measured Current
+      units: V
+      scpiname: MEAS:CURR
+      type: current
+  - name: dsp-hr
+    title: DSP-HR
+    # port: "192.168.150.38:5025"
+    port: "localhost:5025"
+    controls:
+    - name: voltage
+      title: Set Voltage
+      units: V
+      scpiname: SOUR:VOLT
+      type: voltage
+      writable: true
+    - name: current
+      title: Set Current
+      units: A
+      scpiname: SOUR:CURR
+      type: current
+      writable: true
+    - name: output
+      title: Output On
+      scpiname: OUTP
+      type: switch
+      writable: true
+    - name: mode
+      title: Mode
+      scpiname: SOUR:MODE
+      type: text
+    - name: mvoltage
+      title: Measured Voltage
+      units: V
+      scpiname: MEAS:VOLT
+      type: voltage
+    - name: mcurr
+      title: Measured Current
+      units: V
+      scpiname: MEAS:CURR
+      type: current
+    - name: rtime
+      title: Output voltage ramp-up time
+      units: s
+      max: 0.99
+      scpiname: SOUR:LIST:RTIM
+      type: value
+      writable: true
+    - name: dtime
+      title: Output voltage ramp-down time
+      units: s
+      max: 0.99
+      scpiname: SOUR:LIST:DTIM
+      type: value
+      writable: true
+    - name: voltProtLev
+      title: Overvoltage protection level
+      units: V
+      scpiname: SOUR:VOLT:PROT:LEV
+      type: voltage
+      writable: true
+    - name: voltLimLow
+      title: Lower limit of output voltage
+      units: V
+      scpiname: SOUR:VOLT:LIM:LOW
+      type: voltage
+      writable: true
+    - name: voltProtTrip
+      title: Protection circuit is tripped
+      scpiname: SOUR:VOLT:PROT:TRIP
+      type: alarm
+    - name: currProtLev
+      title: Overcurrent protection level
+      units: A
+      scpiname: SOUR:CURR:PROT:LEV
+      type: current
+      writable: true
+    - name: currProtTrip
+      title: Overcurrent circuit is tripped
+      scpiname: SOUR:CURR:PROT:TRIP
+      type: alarm
+    - name: dispCont
+      title: Display contrast
+      max: 5
+      scpiname: DISP:CONT
+      type: value
+      writable: true
+# TODO: force integer (dispCont)
+# TODO: OUTPut:PROTection:CLEar -- button
