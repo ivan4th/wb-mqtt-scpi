@@ -1,21 +1,69 @@
 package main
 
 import (
-	"github.com/contactless/wbgo"
+	"fmt"
 	"io"
 	"net/textproto"
+	"strings"
+	"time"
+
+	"github.com/contactless/wbgo"
 )
 
+const (
+	// FIXME: don't hardcode these values, use config
+	scpiTimeout             = 5 * time.Second
+	scpiIdentifyNumAttempts = 10
+)
+
+type ConnectionWithDeadline interface {
+	SetDeadline(t time.Time) error
+}
+
+type dummyDeadline struct{}
+
+func (d dummyDeadline) SetDeadline(time time.Time) error {
+	return nil
+}
+
 type Scpi struct {
-	c *textproto.Conn
+	c           *textproto.Conn
+	timeFunc    func() time.Time
+	d           ConnectionWithDeadline
+	idSubstring string
 }
 
-func NewScpi(conn io.ReadWriteCloser) *Scpi {
-	return &Scpi{textproto.NewConn(conn)}
+func NewScpi(conn io.ReadWriteCloser, idSubstring string) *Scpi {
+	d, ok := conn.(ConnectionWithDeadline)
+	if !ok {
+		d = dummyDeadline{}
+	}
+	return &Scpi{
+		c:           textproto.NewConn(conn),
+		timeFunc:    time.Now,
+		d:           d,
+		idSubstring: idSubstring,
+	}
 }
 
-func (s *Scpi) Identify() (string, error) {
-	return s.Query("*IDN?")
+func (s *Scpi) SetTimeFunc(timeFunc func() time.Time) {
+	s.timeFunc = timeFunc
+}
+
+func (s *Scpi) Identify() (r string, err error) {
+	for i := 0; i < scpiIdentifyNumAttempts; i++ {
+		r, err = s.Query("*IDN?")
+		if err != nil {
+			wbgo.Error.Printf("Identify() error: %v", err)
+			continue
+		}
+		if s.idSubstring != "" && !strings.Contains(r, s.idSubstring) {
+			err = fmt.Errorf("bad id string %q (expected it to contain %q)", r, s.idSubstring)
+		} else {
+			break
+		}
+	}
+	return
 }
 
 func (s *Scpi) Query(query string) (string, error) {
@@ -28,6 +76,10 @@ func (s *Scpi) Query(query string) (string, error) {
 	wbgo.Debug.Printf("Query: waiting for response")
 	s.c.StartResponse(id)
 	defer s.c.EndResponse(id)
+	if err := s.d.SetDeadline(s.timeFunc().Add(scpiTimeout)); err != nil {
+		wbgo.Debug.Printf("Query: SetDeadline error: %v", err)
+		return "", fmt.Errorf("SetDeadline error: %v", err)
+	}
 	r, err := s.c.ReadLine()
 	if err != nil {
 		wbgo.Debug.Printf("Query: error: %v", err)
@@ -38,15 +90,12 @@ func (s *Scpi) Query(query string) (string, error) {
 }
 
 func (s *Scpi) Set(cmd string, param string) error {
-	wbgo.Debug.Printf("Set: %q %q", cmd, param)
-	id, err := s.c.Cmd(cmd + " " + param)
-	s.c.StartResponse(id)
-	// no response to 'set' command
-	s.c.EndResponse(id)
-	if err != nil {
-		wbgo.Debug.Printf("Set: error: %v", err)
+	if r, err := s.Query(fmt.Sprintf("%s %s; *OPC?", cmd, param)); err != nil {
 		return err
+	} else if r != "1" {
+		return fmt.Errorf("unexpected set response %q", r)
 	}
-	wbgo.Debug.Printf("Set finished")
 	return nil
 }
+
+// TODO: try to retrieve the error

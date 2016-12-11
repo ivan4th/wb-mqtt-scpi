@@ -13,9 +13,10 @@ var (
 	sampleConfig = &ScpiConfig{
 		Ports: []*ScpiPortConfig{
 			{
-				Name:  "sample",
-				Title: "Sample Dev",
-				Port:  "localhost:10010",
+				Name:        "sample",
+				Title:       "Sample Dev",
+				Port:        "localhost:10010",
+				IdSubstring: "some_dev_id",
 				Controls: []*ScpiControl{
 					{
 						Name:     "voltage",
@@ -62,7 +63,7 @@ func (s *ScpiModelSuite) connector() Connector {
 			// TBD: check why the test hangs if this happens
 			return nil, errBadPort
 		}
-		return s.tester.theirEnd, nil
+		return s.tester.fc, nil
 	}
 }
 
@@ -134,7 +135,7 @@ func (s *ScpiModelSuite) TestSet() {
 	s.Start()
 	s.verifyPoll()
 	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/current/on", "3.6", 1, false})
-	s.tester.simpleChat("CURR 3.6", "")
+	s.tester.simpleChat("CURR 3.6; *OPC?", "1")
 	s.Verify(
 		"tst -> /devices/sample/controls/current/on: [3.6] (QoS 1)",
 		"driver -> /devices/sample/controls/current: [3.6] (QoS 1, retained)",

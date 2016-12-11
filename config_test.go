@@ -12,6 +12,7 @@ ports:
   - name: somedev
     title: Some Device
     port: /dev/ttyS0
+    idsubstring: some_dev_id
     controls:
     - name: current1
       title: Current 1
@@ -29,9 +30,10 @@ ports:
 var sampleParsedConfig = &ScpiConfig{
 	Ports: []*ScpiPortConfig{
 		{
-			Name:  "somedev",
-			Title: "Some Device",
-			Port:  "/dev/ttyS0",
+			Name:        "somedev",
+			Title:       "Some Device",
+			Port:        "/dev/ttyS0",
+			IdSubstring: "some_dev_id",
 			Controls: []*ScpiControl{
 				{
 					Name:     "current1",

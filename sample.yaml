@@ -23,6 +23,7 @@ ports:
     title: DSP-HR
     # port: "192.168.150.38:5025"
     port: "localhost:5025"
+    idsubstring: AKIP-1134-60-25
     controls:
     - name: voltage
       title: Set Voltage

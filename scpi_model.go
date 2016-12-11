@@ -45,12 +45,7 @@ func newScpiDevice(scpi *Scpi, portConfig *ScpiPortConfig) *scpiDevice {
 	return d
 }
 
-func (d *scpiDevice) pollControl(control *ScpiControl) {
-	r, err := d.scpi.Query(control.ScpiName + "?")
-	if err != nil {
-		wbgo.Error.Printf("failed to read %s/%s %q: %v", d.portConfig.Name, control.Name, control.ScpiName)
-		return
-	}
+func (d *scpiDevice) handleQueryResponse(control *ScpiControl, r string) {
 	if !d.controlsSent[control.Name] {
 		writability := wbgo.ForceReadOnly
 		if control.Writable {
@@ -76,10 +71,28 @@ func (d *scpiDevice) pollControl(control *ScpiControl) {
 	}
 }
 
+func (d *scpiDevice) identify() {
+	r, err := d.scpi.Identify()
+	if err != nil {
+		wbgo.Error.Printf("Identify() failed for device %s: %v", d.portConfig.Name, err)
+		return
+	}
+	d.handleQueryResponse(idControl, r)
+}
+
+func (d *scpiDevice) pollControl(control *ScpiControl) {
+	r, err := d.scpi.Query(control.ScpiName + "?")
+	if err != nil {
+		wbgo.Error.Printf("failed to read %s/%s %q: %v", d.portConfig.Name, control.Name, control.ScpiName)
+		return
+	}
+	d.handleQueryResponse(control, r)
+}
+
 func (d *scpiDevice) poll() {
 	// only poll 'id' once
 	if !d.controlsSent["id"] {
-		d.pollControl(idControl)
+		d.identify()
 	}
 	for _, control := range d.portConfig.Controls {
 		d.pollControl(control)
@@ -133,7 +146,7 @@ func (m *ScpiModel) Start() error {
 			wbgo.Error.Printf("failed to open port %q: %v", portConfig.Name, err)
 			continue
 		}
-		dev := newScpiDevice(NewScpi(rwc), portConfig)
+		dev := newScpiDevice(NewScpi(rwc, portConfig.IdSubstring), portConfig)
 		m.devs = append(m.devs, dev)
 		m.Observer.OnNewDevice(dev)
 	}

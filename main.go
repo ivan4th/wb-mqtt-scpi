@@ -34,7 +34,7 @@ func main() {
 	model := NewScpiModel(connect, config)
 	mqttClient := wbgo.NewPahoMQTTClient(*broker, DRIVER_CLIENT_ID, false)
 	driver := wbgo.NewDriver(model, mqttClient)
-	driver.SetPollInterval(100) // TBD: make configurable
+	driver.SetPollInterval(5 * time.Second) // TBD: make configurable
 	if err := driver.Start(); err != nil {
 		wbgo.Error.Fatalf("failed to start the driver: %v", err)
 	}

@@ -14,10 +14,11 @@ type ScpiControl struct {
 }
 
 type ScpiPortConfig struct {
-	Name     string
-	Title    string
-	Port     string
-	Controls []*ScpiControl
+	Name        string
+	Title       string
+	Port        string
+	IdSubstring string
+	Controls    []*ScpiControl
 }
 
 type ScpiConfig struct {
