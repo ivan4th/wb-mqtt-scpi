@@ -13,22 +13,25 @@ const (
 	tcpTimeout    = 500 * time.Millisecond
 )
 
-type TimeoutChecker interface {
-	IsTimeout(err error) bool
-}
-
 type serialWrapper struct {
 	serial.Port
 }
 
-func (w *serialWrapper) Read(p []byte) (n int, err error) {
-	if n, err := w.Read(p); err == serial.ErrTimeout {
-		return n, ErrTimeout
-	} else {
-		return n, err
+func (w *serialWrapper) Read(b []byte) (n int, err error) {
+	if n, err = w.Read(b); err == serial.ErrTimeout {
+		err = ErrTimeout
 	}
+	return
 }
 
+func (w *serialWrapper) Write(b []byte) (n int, err error) {
+	if n, err = w.Write(b); err == serial.ErrTimeout {
+		err = ErrTimeout
+	}
+	return
+}
+
+// func (w *netWrapper) Read(p []byte) ()
 func connect(serialAddress string) (io.ReadWriteCloser, error) {
 	switch {
 	case strings.HasPrefix(serialAddress, "/"):
