@@ -2,7 +2,13 @@ package main
 
 import (
 	"github.com/go-yaml/yaml"
+	"time"
 )
+
+type ScpiSetupItem struct {
+	Command  string
+	Response string
+}
 
 type ScpiControl struct {
 	Name     string
@@ -14,11 +20,17 @@ type ScpiControl struct {
 }
 
 type ScpiPortConfig struct {
-	Name        string
-	Title       string
-	Port        string
-	IdSubstring string
-	Controls    []*ScpiControl
+	Name           string
+	Title          string
+	Port           string
+	IdSubstring    string
+	CommandDelayMs int
+	Setup          []*ScpiSetupItem
+	Controls       []*ScpiControl
+}
+
+func (c *ScpiPortConfig) CommandDelay() time.Duration {
+	return time.Duration(c.CommandDelayMs) * time.Millisecond
 }
 
 type ScpiConfig struct {

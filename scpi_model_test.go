@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/contactless/wbgo"
 	"github.com/contactless/wbgo/testutils"
-	"io"
 	"testing"
 )
 
@@ -57,19 +56,9 @@ func (s *ScpiModelSuite) SetupTest() {
 	s.FakeMQTTFixture = testutils.NewFakeMQTTFixture(s.T())
 }
 
-func (s *ScpiModelSuite) connector() Connector {
-	return func(port string) (io.ReadWriteCloser, error) {
-		if port != sampleConfig.Ports[0].Port {
-			// TBD: check why the test hangs if this happens
-			return nil, errBadPort
-		}
-		return s.tester.fc, nil
-	}
-}
-
 func (s *ScpiModelSuite) Start() {
-	s.tester = newScpiTester(s.T())
-	s.model = NewScpiModel(s.connector(), sampleConfig)
+	s.tester = newScpiTester(s.T(), sampleConfig.Ports[0].Port)
+	s.model = NewScpiModel(s.tester.connect, sampleConfig)
 	s.client = s.Broker.MakeClient("tst")
 	s.client.Start()
 	s.driver = wbgo.NewDriver(s.model, s.Broker.MakeClient("driver"))
@@ -77,6 +66,7 @@ func (s *ScpiModelSuite) Start() {
 	if err := s.driver.Start(); err != nil {
 		s.T().Fatalf("failed to start the driver: %v", err)
 	}
+	<-s.model.Ready()
 	s.Verify(
 		"driver -> /devices/sample/meta/name: [Sample Dev] (QoS 1, retained)",
 	)
@@ -151,10 +141,9 @@ func TestSmartbusDriverSuite(t *testing.T) {
 // TBD: add OnError to DeviceObserver, support error handling
 // TBD: reconnect on network timeout / connection errors
 //      (don't 'reconnect' to serial upon timeout)
-// TBD: only convirm writes after subsequent checks
+// TBD: only confirm writes after subsequent checks
 //      Related: async value setting / querying
 //      will need to change wbgo.Driver code
-// TBD: control titles
 // TBD: autopoll, delay between params
 // TBD: in ScpiModel, close devices & set 'devs' value to nil on stop
 // TBD: publish writable topics as 'writable' (check homeui srcs)
@@ -164,3 +153,5 @@ func TestSmartbusDriverSuite(t *testing.T) {
 // TBD: test handling of errors returned by connector
 
 // TBD: don't send values that didn't change
+
+// TBD: parallel poll

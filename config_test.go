@@ -13,6 +13,11 @@ ports:
     title: Some Device
     port: /dev/ttyS0
     idsubstring: some_dev_id
+    commanddelayms: 42
+    setup:
+    - command: :SYST:REM
+    - command: WHATEVER
+      response: ORLY
     controls:
     - name: current1
       title: Current 1
@@ -30,10 +35,20 @@ ports:
 var sampleParsedConfig = &ScpiConfig{
 	Ports: []*ScpiPortConfig{
 		{
-			Name:        "somedev",
-			Title:       "Some Device",
-			Port:        "/dev/ttyS0",
-			IdSubstring: "some_dev_id",
+			Name:           "somedev",
+			Title:          "Some Device",
+			Port:           "/dev/ttyS0",
+			IdSubstring:    "some_dev_id",
+			CommandDelayMs: 42,
+			Setup: []*ScpiSetupItem{
+				{
+					Command: ":SYST:REM",
+				},
+				{
+					Command:  "WHATEVER",
+					Response: "ORLY",
+				},
+			},
 			Controls: []*ScpiControl{
 				{
 					Name:     "current1",

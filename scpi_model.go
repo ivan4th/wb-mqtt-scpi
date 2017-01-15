@@ -2,10 +2,7 @@ package main
 
 import (
 	"github.com/contactless/wbgo"
-	"io"
 )
-
-type Connector func(port string) (io.ReadWriteCloser, error)
 
 type scpiDevice struct {
 	wbgo.DeviceBase
@@ -71,31 +68,42 @@ func (d *scpiDevice) handleQueryResponse(control *ScpiControl, r string) {
 	}
 }
 
-func (d *scpiDevice) identify() {
+func (d *scpiDevice) identify() bool {
 	r, err := d.scpi.Identify()
 	if err != nil {
 		wbgo.Error.Printf("Identify() failed for device %s: %v", d.portConfig.Name, err)
-		return
+		return false
 	}
 	d.handleQueryResponse(idControl, r)
+	return true
 }
 
-func (d *scpiDevice) pollControl(control *ScpiControl) {
+func (d *scpiDevice) pollControl(control *ScpiControl) bool {
 	r, err := d.scpi.Query(control.ScpiName + "?")
 	if err != nil {
-		wbgo.Error.Printf("failed to read %s/%s %q: %v", d.portConfig.Name, control.Name, control.ScpiName)
-		return
+		wbgo.Error.Printf("failed to read %s/%s %q: %v", d.portConfig.Name, control.Name, control.ScpiName, err)
+		return false
 	}
 	d.handleQueryResponse(control, r)
+	return true
 }
 
 func (d *scpiDevice) poll() {
-	// only poll 'id' once
-	if !d.controlsSent["id"] {
-		d.identify()
+	select {
+	case <-d.scpi.Ready():
+	default:
+		return
 	}
+
+	// only poll 'id' once
+	if !d.controlsSent["id"] && !d.identify() {
+		return
+	}
+
 	for _, control := range d.portConfig.Controls {
-		d.pollControl(control)
+		if !d.pollControl(control) {
+			break
+		}
 	}
 }
 
@@ -126,10 +134,15 @@ type ScpiModel struct {
 	connector Connector
 	config    *ScpiConfig
 	devs      []*scpiDevice
+	readyCh   chan struct{}
 }
 
 func NewScpiModel(connector Connector, config *ScpiConfig) *ScpiModel {
-	return &ScpiModel{connector: connector, config: config}
+	return &ScpiModel{
+		connector: connector,
+		config:    config,
+		readyCh:   make(chan struct{}),
+	}
 }
 
 func (m *ScpiModel) Start() error {
@@ -141,19 +154,27 @@ func (m *ScpiModel) Start() error {
 	}
 	m.devs = []*scpiDevice{}
 	for _, portConfig := range m.config.Ports {
-		rwc, err := m.connector(portConfig.Port)
-		if err != nil {
-			wbgo.Error.Printf("failed to open port %q: %v", portConfig.Name, err)
-			continue
-		}
-		dev := newScpiDevice(NewScpi(rwc, portConfig.IdSubstring), portConfig)
+		dev := newScpiDevice(NewScpi(m.connector, portConfig.Port, portConfig.IdSubstring, portConfig.Setup, portConfig.CommandDelay()), portConfig)
 		m.devs = append(m.devs, dev)
 		m.Observer.OnNewDevice(dev)
 	}
 	if len(m.devs) == 0 {
 		return errNoPortsOpen
 	}
+	go func() {
+		for _, d := range m.devs {
+			d.scpi.Connect()
+		}
+		for _, d := range m.devs {
+			<-d.scpi.Ready()
+		}
+		close(m.readyCh)
+	}()
 	return nil
+}
+
+func (m *ScpiModel) Ready() chan struct{} {
+	return m.readyCh
 }
 
 func (m *ScpiModel) Poll() {
