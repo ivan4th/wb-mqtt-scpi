@@ -1,36 +1,41 @@
 package main
 
 import (
-	"errors"
 	"github.com/contactless/wbgo"
 	"github.com/contactless/wbgo/testutils"
 	"testing"
 )
 
 var (
-	errBadPort   = errors.New("bad port passed to connector")
-	sampleConfig = &ScpiConfig{
-		Ports: []*ScpiPortConfig{
+	sampleConfig = &DriverConfig{
+		Ports: []*PortConfig{
 			{
-				Name:        "sample",
-				Title:       "Sample Dev",
-				Port:        "localhost:10010",
-				IdSubstring: "some_dev_id",
-				Controls: []*ScpiControl{
-					{
-						Name:     "voltage",
-						Title:    "Measured voltage",
-						Units:    "V",
+				PortSettings: &PortSettings{
+					Name:        "sample",
+					Title:       "Sample Dev",
+					Port:        "localhost:10010",
+					Protocol:    "scpi",
+					IdSubstring: "some_dev_id",
+				},
+				Parameters: []ParameterSpec{
+					&scpiParameterSpec{
+						Control: ControlConfig{
+							Name:  "voltage",
+							Title: "Measured voltage",
+							Units: "V",
+							Type:  "voltage",
+						},
 						ScpiName: "MEAS:VOLT",
-						Type:     "voltage",
 					},
-					{
-						Name:     "current",
-						Title:    "Current",
-						Units:    "A",
+					&scpiParameterSpec{
+						Control: ControlConfig{
+							Name:     "current",
+							Title:    "Current",
+							Units:    "A",
+							Type:     "current",
+							Writable: true,
+						},
 						ScpiName: "CURR",
-						Type:     "current",
-						Writable: true,
 					},
 				},
 			},
@@ -38,27 +43,27 @@ var (
 	}
 )
 
-type ScpiModelSuite struct {
+type ModelSuite struct {
 	testutils.Suite
 	*testutils.FakeMQTTFixture
 	client *testutils.FakeMQTTClient
 	driver *wbgo.Driver
-	model  *ScpiModel
-	tester *scpiTester
+	model  *Model
+	tester *cmdTester
 }
 
-func (s *ScpiModelSuite) T() *testing.T {
+func (s *ModelSuite) T() *testing.T {
 	return s.Suite.T()
 }
 
-func (s *ScpiModelSuite) SetupTest() {
+func (s *ModelSuite) SetupTest() {
 	s.Suite.SetupTest()
 	s.FakeMQTTFixture = testutils.NewFakeMQTTFixture(s.T())
 }
 
-func (s *ScpiModelSuite) Start() {
-	s.tester = newScpiTester(s.T(), sampleConfig.Ports[0].Port)
-	s.model = NewScpiModel(s.tester.connect, sampleConfig)
+func (s *ModelSuite) Start() {
+	s.tester = newCmdTester(s.T(), sampleConfig.Ports[0].Port)
+	s.model = NewModel(DefaultCommanderFactory(s.tester.connect), sampleConfig)
 	s.client = s.Broker.MakeClient("tst")
 	s.client.Start()
 	s.driver = wbgo.NewDriver(s.model, s.Broker.MakeClient("driver"))
@@ -72,7 +77,7 @@ func (s *ScpiModelSuite) Start() {
 	)
 }
 
-func (s *ScpiModelSuite) TearDownTest() {
+func (s *ModelSuite) TearDownTest() {
 	if s.driver != nil {
 		s.driver.Stop()
 		s.Verify(
@@ -82,7 +87,7 @@ func (s *ScpiModelSuite) TearDownTest() {
 	s.Suite.TearDownTest()
 }
 
-func (s *ScpiModelSuite) verifyPoll() {
+func (s *ModelSuite) verifyPoll() {
 	s.driver.Poll()
 	s.tester.simpleChat("*IDN?", "some_dev_id")
 	s.tester.simpleChat("MEAS:VOLT?", "12.0")
@@ -108,7 +113,7 @@ func (s *ScpiModelSuite) verifyPoll() {
 	)
 }
 
-func (s *ScpiModelSuite) TestPoll() {
+func (s *ModelSuite) TestPoll() {
 	s.Start()
 	s.verifyPoll()
 	// second poll doesn't generate .../meta/... and doesn't poll device id
@@ -121,7 +126,7 @@ func (s *ScpiModelSuite) TestPoll() {
 	)
 }
 
-func (s *ScpiModelSuite) TestSet() {
+func (s *ModelSuite) TestSet() {
 	s.Start()
 	s.verifyPoll()
 	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/current/on", "3.6", 1, false})
@@ -133,10 +138,9 @@ func (s *ScpiModelSuite) TestSet() {
 }
 
 func TestSmartbusDriverSuite(t *testing.T) {
-	testutils.RunSuites(t, new(ScpiModelSuite))
+	testutils.RunSuites(t, new(ModelSuite))
 }
 
-// TBD: multiple devices w/separate connections per scpi_model
 // TBD: open conn in Start(), close in Stop()
 // TBD: add OnError to DeviceObserver, support error handling
 // TBD: reconnect on network timeout / connection errors
@@ -145,7 +149,7 @@ func TestSmartbusDriverSuite(t *testing.T) {
 //      Related: async value setting / querying
 //      will need to change wbgo.Driver code
 // TBD: autopoll, delay between params
-// TBD: in ScpiModel, close devices & set 'devs' value to nil on stop
+// TBD: in Model, close devices & set 'devs' value to nil on stop
 // TBD: publish writable topics as 'writable' (check homeui srcs)
 
 // TBD: test config w/o title

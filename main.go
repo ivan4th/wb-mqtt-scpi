@@ -26,12 +26,12 @@ func main() {
 	if err != nil {
 		wbgo.Error.Fatalf("can't load config: %v", err)
 	}
-	config, err := ParseConfig(confBytes)
+	config, err := ParseDriverConfig(confBytes)
 	if err != nil {
 		wbgo.Error.Fatalf("can't parse config: %v", err)
 	}
 
-	model := NewScpiModel(connect, config)
+	model := NewModel(DefaultCommanderFactory(connect), config)
 	mqttClient := wbgo.NewPahoMQTTClient(*broker, DRIVER_CLIENT_ID, false)
 	driver := wbgo.NewDriver(model, mqttClient)
 	driver.SetPollInterval(5 * time.Second) // TBD: make configurable

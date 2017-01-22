@@ -2,7 +2,8 @@ ports:
   - name: somedev
     title: Serial Port
     port: "192.168.255.209:10010"
-    controls:
+    protocol: scpi
+    parameters:
     - name: current
       title: Current
       units: A
@@ -24,7 +25,8 @@ ports:
     # port: "192.168.150.38:5025"
     port: "localhost:5025"
     idsubstring: AKIP-1134-60-25
-    controls:
+    protocol: scpi
+    parameters:
     - name: voltage
       title: Set Voltage
       units: V
