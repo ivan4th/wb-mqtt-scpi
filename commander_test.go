@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"testing"
@@ -321,12 +322,72 @@ func TestAltLineEnding(t *testing.T) {
 	})
 }
 
-// TODO: use just '\n' for line endings
+type queueItem struct {
+	query, resp string
+}
+
+type fakeCommander struct {
+	connected bool
+	t         *testing.T
+	readyCh   chan struct{}
+	queue     []queueItem
+}
+
+var _ Commander = &fakeCommander{}
+
+func newFakeCommander(t *testing.T) *fakeCommander {
+	return &fakeCommander{t: t, readyCh: make(chan struct{})}
+}
+
+func (c *fakeCommander) Connect() {
+	if !c.connected {
+		c.connected = true
+		close(c.readyCh)
+	}
+}
+
+func (c *fakeCommander) Ready() <-chan struct{} {
+	return c.readyCh
+}
+
+func (c *fakeCommander) Query(query string) (string, error) {
+	if !c.connected {
+		err := errors.New("fakeCommander: not connected")
+		c.t.Error(err)
+		return "", err
+	}
+	if len(c.queue) == 0 {
+		err := errors.New("fakeCommander: response queue is empty")
+		c.t.Error(err)
+		return "", err
+	}
+	item := c.queue[0]
+	c.queue = c.queue[1:]
+	if query != item.query {
+		err := fmt.Errorf("fakeCommander: bad command %q instead of %q", query, item.query)
+		c.t.Error(err)
+		return "", err
+	}
+	return item.resp, nil
+}
+
+func (c *fakeCommander) enqueue(items ...string) {
+	if len(items)%2 > 0 {
+		c.t.Fatalf("fakeCommander: enqueue() accepts even number of arguments")
+	}
+	for i := 0; i < len(items); i += 2 {
+		c.queue = append(c.queue, queueItem{items[i], items[i+1]})
+	}
+}
+
+func (c *fakeCommander) verifyAndFlush() {
+	if len(c.queue) > 0 {
+		c.t.Errorf("fakeCommander: unexpected items in queue: %#v", c.queue)
+	}
+}
+
 // TODO: test command delays
 // TODO: test pauses between connection attempts
 // TODO: test failure upon connect & reconnect!
 // TODO: test bad response to reconnection
-// TODO: conn setup (after reconnect too) -- :SYST:REM (setup) -- sent w/o response!
 // TODO: test errors while connecting
-// TODO: Scpi.Ready()
-// TODO: don't poll when not Scpi.Ready()

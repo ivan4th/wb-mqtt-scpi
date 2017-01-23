@@ -40,6 +40,60 @@ func prepareScpiTest(t *testing.T) (*cmdTester, *DeviceCommander, Protocol) {
 	return tester, commander, protocol
 }
 
+func verifyQuery(t *testing.T, commander Commander, param Parameter, expectedName string) (string, error) {
+	var r string
+	var err1 error
+	handlerCalled := false
+	err := param.Query(commander, func(name string, value interface{}) {
+		if name != expectedName {
+			err1 = fmt.Errorf("bad param name %q instead of expected %q", name, expectedName)
+		} else if handlerCalled {
+			err1 = errors.New("the handler called more than one time")
+		}
+		handlerCalled = true
+		r = value.(string)
+	})
+	if err == nil {
+		err = err1
+	}
+	if err != nil {
+		t.Error(err)
+	}
+	return r, err
+}
+
+func TestScpiWithFakeCommander(t *testing.T) {
+	commander := newFakeCommander(t)
+	protocol, err := CreateProtocol(scpiPortConfig)
+	if err != nil {
+		t.Fatalf("CreateProtocol(): %v", err)
+	}
+	commander.Connect()
+	<-commander.Ready()
+
+	commander.enqueue("*IDN?", "IZNAKURNOZH")
+	id, err := protocol.Identify(commander)
+	if err != nil {
+		t.Fatalf("Identify(): %v", err)
+	}
+	if id != "IZNAKURNOZH" {
+		t.Errorf("Bad id %q", id)
+	}
+	commander.verifyAndFlush()
+
+	commander.enqueue("CURR?", "3.500")
+	param, err := protocol.Parameter(scpiPortConfig.Parameters[0])
+	if err != nil {
+		t.Fatalf("Parameter(): %v", err)
+	}
+	verifyQuery(t, commander, param, "current1")
+	commander.verifyAndFlush()
+
+	commander.enqueue("CURR 3.4; *OPC?", "1")
+	param.Set(commander, "3.4")
+	commander.verifyAndFlush()
+}
+
 func TestScpi(t *testing.T) {
 	tester, commander, protocol := prepareScpiTest(t)
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
@@ -50,20 +104,7 @@ func TestScpi(t *testing.T) {
 		t.Fatalf("Parameter(): %v", err)
 	}
 	tester.chat("CURR?", "3.500", func() (string, error) {
-		var r string
-		handlerCalled := false
-		if err = param.Query(commander, func(name string, value interface{}) {
-			if name != "current1" {
-				err = fmt.Errorf("bad param name %q", name)
-			} else if handlerCalled {
-				err = errors.New("the handler called more than one time")
-			}
-			handlerCalled = true
-			r = value.(string)
-		}); err != nil {
-			return "", err
-		}
-		return r, nil
+		return verifyQuery(t, commander, param, "current1")
 	})
 	tester.acceptSetCommand("CURR 3.4; *OPC?", "1", func() error {
 		return param.Set(commander, "3.4")

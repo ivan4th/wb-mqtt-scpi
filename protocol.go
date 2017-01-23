@@ -8,9 +8,11 @@ type Commander interface {
 	Query(query string) (string, error)
 }
 
+type QueryHandler func(string, interface{})
+
 type Parameter interface {
 	Name() string
-	Query(Commander, func(string, interface{})) error
+	Query(Commander, QueryHandler) error
 	Set(Commander, interface{}) error
 }
 

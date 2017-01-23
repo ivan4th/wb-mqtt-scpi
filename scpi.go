@@ -21,12 +21,12 @@ var _ Parameter = &scpiParameter{}
 
 func (p *scpiParameter) Name() string { return p.scpiName }
 
-func (p *scpiParameter) Query(c Commander, receive func(name string, value interface{})) error {
+func (p *scpiParameter) Query(c Commander, handler QueryHandler) error {
 	v, err := c.Query(p.scpiName + "?")
 	if err != nil {
 		return err
 	}
-	receive(p.name, v)
+	handler(p.name, v)
 	return nil
 }
 
