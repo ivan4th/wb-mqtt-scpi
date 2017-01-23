@@ -103,6 +103,7 @@ type cmdTester struct {
 	connectCount int
 	connectPort  string
 	connectCh    chan struct{}
+	lineEnding   string
 }
 
 func newCmdTester(t *testing.T, connectPort string) *cmdTester {
@@ -111,6 +112,7 @@ func newCmdTester(t *testing.T, connectPort string) *cmdTester {
 		t:           t,
 		connectPort: connectPort,
 		connectCh:   make(chan struct{}, 100),
+		lineEnding:  "\r\n",
 	}
 }
 
@@ -119,7 +121,8 @@ func (tester *cmdTester) expectCommand(cmd string) {
 	errCh := make(chan error)
 	go func() {
 		var err error
-		l, err = tester.ourReader.ReadString('\n')
+		lastCh := tester.lineEnding[len(tester.lineEnding)-1]
+		l, err = tester.ourReader.ReadString(lastCh)
 		errCh <- err
 	}()
 	select {
@@ -130,13 +133,13 @@ func (tester *cmdTester) expectCommand(cmd string) {
 			tester.t.Fatalf("failed to read the command, expected: %v", cmd)
 		}
 	}
-	if l != cmd+"\r\n" {
-		tester.t.Errorf("invalid command: %#v instead of %#v", l, cmd+"\r\n")
+	if l != cmd+tester.lineEnding {
+		tester.t.Errorf("invalid command: %#v instead of %#v", l, cmd+tester.lineEnding)
 	}
 }
 
 func (tester *cmdTester) writeResponse(response string) {
-	if _, err := tester.ourWriter.Write([]byte(response + "\r\n")); err != nil {
+	if _, err := tester.ourWriter.Write([]byte(response + tester.lineEnding)); err != nil {
 		tester.t.Fatalf("Write failed: %v", err)
 	}
 }
@@ -177,7 +180,7 @@ func (tester *cmdTester) acceptSetCommand(cmd, response string, thunk func() err
 		errCh <- thunk()
 	}()
 	tester.expectCommand(cmd)
-	tester.ourWriter.Write([]byte(response + "\r\n"))
+	tester.ourWriter.Write([]byte(response + tester.lineEnding))
 	if err := <-errCh; err != nil {
 		tester.t.Fatalf("failed to invoke command: %v", err)
 	}
@@ -301,6 +304,18 @@ func TestReconnect(t *testing.T) {
 	if !oldFc.closed {
 		t.Errorf("The old connection was not closed")
 	}
+	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
+		return commander.Query("*IDN?")
+	})
+}
+
+func TestAltLineEnding(t *testing.T) {
+	tester := newCmdTester(t, samplePort)
+	tester.lineEnding = "\r"
+	commander := NewCommander(tester.connect, &PortSettings{Port: samplePort, LineEnding: "cr"})
+	commander.Connect()
+	<-commander.Ready()
+	commander.SetClock(tester)
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
 		return commander.Query("*IDN?")
 	})

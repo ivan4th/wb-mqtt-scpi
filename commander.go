@@ -28,8 +28,20 @@ type connectionWrapper struct {
 	innerConn io.ReadWriteCloser
 }
 
-func newConnectionWrapper(conn io.ReadWriteCloser) *connectionWrapper {
-	return &connectionWrapper{textproto.NewConn(conn), conn}
+func newConnectionWrapper(conn io.ReadWriteCloser, noLf bool) *connectionWrapper {
+	c := conn
+	if noLf {
+		c = struct {
+			io.Reader
+			io.Writer
+			io.Closer
+		}{
+			NewAddLfReader(conn),
+			NewNoLfWriter(conn),
+			conn,
+		}
+	}
+	return &connectionWrapper{textproto.NewConn(c), conn}
 }
 
 func (c connectionWrapper) SetDeadline(time time.Time) error {
@@ -103,7 +115,7 @@ func (dc *DeviceCommander) Connect() {
 			}
 			dc.Lock()
 			defer dc.Unlock()
-			dc.c = newConnectionWrapper(conn)
+			dc.c = newConnectionWrapper(conn, dc.settings.LineEnding == "cr")
 			wbgo.Debug.Printf("connected to %s", dc.settings.Port)
 			// TODO: avoid holding mutex during 'setup'. We need state machine
 			// (CommanderState interface)

@@ -38,9 +38,11 @@ type ParameterSpec interface {
 }
 
 type PortSettings struct {
-	Name           string
-	Title          string
-	Port           string
+	Name  string
+	Title string
+	Port  string
+	// LineEnding can be 'crlf' (default) or 'lf', or empty meaning the default
+	LineEnding     string
 	IdSubstring    string
 	Protocol       string
 	CommandDelayMs int
