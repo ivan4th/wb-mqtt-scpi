@@ -182,6 +182,7 @@ func (dc *DeviceCommander) maybeDelay() {
 }
 
 func (dc *DeviceCommander) sendCommand(c *connectionWrapper, cmd string) error {
+	cmd = dc.settings.Prefix + cmd
 	wbgo.Debug.Printf("sendCommand: %q", cmd)
 	dc.maybeDelay()
 	id, err := c.Cmd(cmd)
@@ -196,6 +197,7 @@ func (dc *DeviceCommander) sendCommand(c *connectionWrapper, cmd string) error {
 
 func (dc *DeviceCommander) doQuery(c *connectionWrapper, query string) (string, error) {
 	dc.maybeDelay()
+	query = dc.settings.Prefix + query
 	id, err := c.Cmd(query)
 	if err != nil {
 		wbgo.Debug.Printf("Query: Cmd err: %v", err)

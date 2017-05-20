@@ -53,6 +53,7 @@ type PortSettings struct {
 	LineEnding     string
 	IdSubstring    string
 	Protocol       string
+	Prefix         string // FIXME: use protocol-specific address spec
 	CommandDelayMs int
 	Setup          []*SetupItem
 }
