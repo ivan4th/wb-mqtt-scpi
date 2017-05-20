@@ -18,14 +18,14 @@ type serialWrapper struct {
 }
 
 func (w *serialWrapper) Read(b []byte) (n int, err error) {
-	if n, err = w.Read(b); err == serial.ErrTimeout {
+	if n, err = w.Port.Read(b); err == serial.ErrTimeout {
 		err = ErrTimeout
 	}
 	return
 }
 
 func (w *serialWrapper) Write(b []byte) (n int, err error) {
-	if n, err = w.Write(b); err == serial.ErrTimeout {
+	if n, err = w.Port.Write(b); err == serial.ErrTimeout {
 		err = ErrTimeout
 	}
 	return

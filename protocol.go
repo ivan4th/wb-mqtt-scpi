@@ -13,7 +13,7 @@ type QueryHandler func(string, interface{})
 type Parameter interface {
 	Name() string
 	Query(Commander, QueryHandler) error
-	Set(Commander, interface{}) error
+	Set(Commander, string, interface{}) error
 }
 
 type Protocol interface {

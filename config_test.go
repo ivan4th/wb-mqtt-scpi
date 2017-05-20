@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -18,6 +20,15 @@ func (spec *sampleParameterSpec) ListControls() []*ControlConfig {
 	return spec.Controls
 }
 
+func (spec *sampleParameterSpec) ShouldPoll() bool {
+	for _, c := range spec.Controls {
+		if c.ShouldPoll() {
+			return true
+		}
+	}
+	return false
+}
+
 func (spec *sampleParameterSpec) Settable() bool {
 	for _, c := range spec.Controls {
 		if c.Writable {
@@ -27,43 +38,69 @@ func (spec *sampleParameterSpec) Settable() bool {
 	return false
 }
 
+func (spec *sampleParameterSpec) Validate() error {
+	for _, control := range spec.Controls {
+		if err := control.Validate(); err != nil {
+			return err
+		}
+	}
+	if spec.SampleName == "" {
+		return errors.New("SampleName not specified")
+	}
+	if spec.SampleName == "XXX" {
+		return errors.New("SampleName XXX is prohibited")
+	}
+	return nil
+}
+
 var sampleConfigStr = `
 ports:
-  - name: somedev
-    title: Some Device
-    port: /dev/ttyS0
-    protocol: sample
-    idsubstring: some_dev_id
-    commanddelayms: 42
-    setup:
-    - command: :SYST:REM
-    - command: WHATEVER
-      response: ORLY
-    parameters:
-    - samplename: CURRVOLT
-      controls:
-      - name: current1
-      - name: voltage1
-    - samplename: CURR
-      controls:
-      - name: current1
-        title: Current 1
-        units: A
-        type: current
-        writable: true
-    - samplename: VOLT
-      controls:
-      - name: voltage1
-        title: Voltage 1
-        units: V
-        type: voltage
-        writable: true
-    - samplename: MEAS:CURR
-      controls:
-      - name: mcurrent1
-        title: Measured Current 1
-        units: A
-        type: current
+- name: somedev
+  title: Some Device
+  port: /dev/ttyS0
+  protocol: sample
+  idsubstring: some_dev_id
+  commanddelayms: 42
+  setup:
+  - command: :SYST:REM
+  - command: WHATEVER
+    response: ORLY
+  parameters:
+  - samplename: CURRVOLT
+    controls:
+    - name: current1
+    - name: voltage1
+  - samplename: CURR
+    controls:
+    - name: current1
+      title: Current 1
+      units: A
+      type: current
+      writable: true
+  - samplename: VOLT
+    controls:
+    - name: voltage1
+      title: Voltage 1
+      units: V
+      type: voltage
+      writable: true
+  - samplename: MEAS:CURR
+    controls:
+    - name: mcurrent1
+      title: Measured Current 1
+      units: A
+      type: current
+  - samplename: MODE
+    controls:
+    - name: mode
+      title: Mode
+      type: text
+      enum: *sampleEnum
+enums:
+- &sampleEnum
+  0: "x"
+  1: "y"
+  2: "z"
 `
 
 var sampleParsedConfig = &DriverConfig{
@@ -133,6 +170,21 @@ var sampleParsedConfig = &DriverConfig{
 					},
 					SampleName: "MEAS:CURR",
 				},
+				&sampleParameterSpec{
+					Controls: []*ControlConfig{
+						{
+							Name:  "mode",
+							Title: "Mode",
+							Type:  "text",
+							Enum: map[int]string{
+								0: "x",
+								1: "y",
+								2: "z",
+							},
+						},
+					},
+					SampleName: "MODE",
+				},
 			},
 		},
 	},
@@ -172,6 +224,16 @@ func TestGetControls(t *testing.T) {
 			Units: "A",
 			Type:  "current",
 		},
+		{
+			Name:  "mode",
+			Title: "Mode",
+			Type:  "text",
+			Enum: map[int]string{
+				0: "x",
+				1: "y",
+				2: "z",
+			},
+		},
 	}
 	actualControls, paramSetMap, err := sampleParsedConfig.Ports[0].GetControls()
 	if err != nil {
@@ -189,5 +251,24 @@ func TestGetControls(t *testing.T) {
 	}
 	if paramSetMap["voltage1"] != sampleParsedConfig.Ports[0].Parameters[2] {
 		t.Errorf("invalid paramSetMap entry for voltage1: %s", spew.Sdump(paramSetMap["voltage1"]))
+	}
+}
+
+func TestValidationFailures(t *testing.T) {
+	RegisterProtocolConfig("sample", &sampleParameterSpec{})
+	for _, testCase := range []struct{ old, new, errStr string }{
+		{"samplename: CURRVOLT", "#", "SampleName not specified"},
+		{"samplename: CURRVOLT", "samplename: XXX", "SampleName XXX is prohibited"},
+		{"name: mcurrent1", "#", "got control without name"},
+		// TODO: should validate merged controls
+		// {"type: voltage", "#", `no type specified for control "voltage1"`},
+	} {
+		_, err := ParseDriverConfig([]byte(strings.Replace(sampleConfigStr, testCase.old, testCase.new, -1)))
+		switch {
+		case err == nil:
+			t.Errorf("replacement %q -> %q didn't cause an error", testCase.old, testCase.new)
+		case err.Error() != testCase.errStr:
+			t.Errorf("bad error after replacing %q -> %q: %q (expected %q)", testCase.old, testCase.new, err, testCase.errStr)
+		}
 	}
 }

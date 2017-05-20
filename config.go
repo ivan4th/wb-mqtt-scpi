@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/go-yaml/yaml"
@@ -21,6 +22,7 @@ type ControlConfig struct {
 	Units    string
 	Type     string
 	Writable bool
+	Enum     map[int]string
 }
 
 type ParameterSpec interface {
@@ -32,9 +34,14 @@ type ParameterSpec interface {
 	// If at least one of such control definitions has true in Writable
 	// field, the resulting control is considered writable.
 	ListControls() []*ControlConfig
-	// Settable return true if this parameter can be used for setting values
+	// ShouldPoll returns true if the parameter should be polled
+	ShouldPoll() bool
+	// Settable returns true if this parameter can be used for setting values
 	// of the controls that have Writable: true
 	Settable() bool
+	// Validate checks if ParameterSpec is valid and returns an
+	// error if it isn't
+	Validate() error
 }
 
 type PortSettings struct {
@@ -42,6 +49,7 @@ type PortSettings struct {
 	Title string
 	Port  string
 	// LineEnding can be 'crlf' (default) or 'lf', or empty meaning the default
+	// TODO: the default should be taken from the protocol
 	LineEnding     string
 	IdSubstring    string
 	Protocol       string
@@ -63,6 +71,36 @@ type DriverConfig struct {
 }
 
 type ParameterUnmarshaler func(unmarshal func(interface{}) error) ([]ParameterSpec, error)
+
+func (c *ControlConfig) ShouldPoll() bool {
+	return c.Type != "pushbutton"
+}
+
+func (c *ControlConfig) TransformDeviceValue(v interface{}) string {
+	s := fmt.Sprintf("%v", v)
+	if c.Enum == nil {
+		return s
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return s
+	}
+	if name, found := c.Enum[n]; found {
+		return name
+	}
+	return s
+}
+
+func (c *ControlConfig) Validate() error {
+	if c.Name == "" {
+		return errors.New("got control without name")
+	}
+	// FIXME: should do this validation on merged controls
+	// if c.Type == "" {
+	// 	return fmt.Errorf("no type specified for control %q", c.Name)
+	// }
+	return nil
+}
 
 func mergeControls(a, b *ControlConfig) (*ControlConfig, error) {
 	r := *a
@@ -88,6 +126,11 @@ func mergeControls(a, b *ControlConfig) (*ControlConfig, error) {
 	}
 	if b.Writable {
 		r.Writable = true
+	}
+	if a.Enum == nil {
+		r.Enum = b.Enum
+	} else if b.Enum != nil {
+		return nil, fmt.Errorf("enum conflict for %q", a.Name)
 	}
 	return &r, nil
 }
@@ -115,6 +158,12 @@ func (config *PortConfig) GetControls() ([]*ControlConfig, map[string]ParameterS
 				return nil, nil, err
 			}
 			*prev = *merged
+		}
+	}
+	for _, c := range controls {
+		// FIXME
+		if c.Type == "pushbutton" {
+			c.Writable = true
 		}
 	}
 	return controls, paramSetMap, nil
@@ -158,7 +207,11 @@ func (config *PortConfig) UnmarshalYAML(unmarshal func(interface{}) error) error
 	params := reflect.ValueOf(paramList).Elem().FieldByName("Parameters")
 	config.Parameters = make([]ParameterSpec, params.Len())
 	for i := 0; i < params.Len(); i++ {
-		config.Parameters[i] = params.Index(i).Interface().(ParameterSpec)
+		spec := params.Index(i).Interface().(ParameterSpec)
+		if err := spec.Validate(); err != nil {
+			return err
+		}
+		config.Parameters[i] = spec
 	}
 
 	return nil

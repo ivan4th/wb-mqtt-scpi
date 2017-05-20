@@ -86,7 +86,9 @@ func newDevice(commander Commander, portConfig *PortConfig) (*device, error) {
 func (d *device) handleQueryResponse(control *ControlConfig, r string) {
 	if !d.controlsSent[control.Name] {
 		writability := wbgo.ForceReadOnly
-		if control.Writable {
+		if control.Type == "pushbutton" {
+			writability = wbgo.DefaultWritability
+		} else if control.Writable {
 			writability = wbgo.ForceWritable
 		}
 		title := control.Title
@@ -102,9 +104,8 @@ func (d *device) handleQueryResponse(control *ControlConfig, r string) {
 			Value:       r,
 			Writability: writability,
 		})
-		// d.Observer.OnNewControl(d, control.Name, control.Type, r, !control.Writable, -1, true)
 		d.controlsSent[control.Name] = true
-	} else {
+	} else if control.ShouldPoll() {
 		d.Observer.OnValue(d, control.Name, r)
 	}
 }
@@ -115,7 +116,7 @@ func (d *device) identify() bool {
 		wbgo.Error.Printf("Identify() failed for device %s: %v", d.portConfig.Name, err)
 		return false
 	}
-	d.handleQueryResponse(idControl, r)
+	d.handleQueryResponse(idControl, idControl.TransformDeviceValue(r))
 	return true
 }
 
@@ -131,14 +132,24 @@ func (d *device) poll() {
 		return
 	}
 
-	for _, param := range d.parameters {
+	for n, param := range d.parameters {
+		// FIXME: don't assume same indices to these arrays!
+		paramSpec := d.portConfig.Parameters[n]
+		if !paramSpec.ShouldPoll() {
+			for _, control := range paramSpec.ListControls() {
+				if !control.ShouldPoll() {
+					d.handleQueryResponse(control, "")
+				}
+			}
+			continue
+		}
 		err := param.Query(d.commander, func(name string, v interface{}) {
 			control, found := d.nameToControl[name]
 			if !found {
 				log.Panicf("internal error: control %v not found by device", name)
 			}
 			// TODO: just pass string there from Parameter.Query()
-			d.handleQueryResponse(control, fmt.Sprintf("%v", v))
+			d.handleQueryResponse(control, control.TransformDeviceValue(v))
 		})
 		if err != nil {
 			wbgo.Error.Printf("failed to read %s from %q: %v", param.Name(), d.portConfig.Name, err)
@@ -166,7 +177,7 @@ func (d *device) AcceptOnValue(name, value string) bool {
 		wbgo.Error.Printf("no settable parameter for control %q in device %q", name, d.portConfig.Name)
 		return false
 	}
-	param.Set(d.commander, value)
+	param.Set(d.commander, control.Name, value)
 	return true
 }
 

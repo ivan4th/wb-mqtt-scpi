@@ -90,7 +90,7 @@ func TestScpiWithFakeCommander(t *testing.T) {
 	commander.verifyAndFlush()
 
 	commander.enqueue("CURR 3.4; *OPC?", "1")
-	param.Set(commander, "3.4")
+	param.Set(commander, "current1", "3.4")
 	commander.verifyAndFlush()
 }
 
@@ -107,7 +107,7 @@ func TestScpi(t *testing.T) {
 		return verifyQuery(t, commander, param, "current1")
 	})
 	tester.acceptSetCommand("CURR 3.4; *OPC?", "1", func() error {
-		return param.Set(commander, "3.4")
+		return param.Set(commander, "current1", "3.4")
 	})
 }
 

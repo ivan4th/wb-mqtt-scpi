@@ -37,6 +37,27 @@ var (
 						},
 						ScpiName: "CURR",
 					},
+					&scpiParameterSpec{
+						Control: ControlConfig{
+							Name:  "mode",
+							Title: "Mode",
+							Type:  "text",
+							Enum: map[int]string{
+								0: "Foo",
+								1: "Bar",
+								2: "Baz",
+							},
+						},
+						ScpiName: "MODE",
+					},
+					&scpiParameterSpec{
+						Control: ControlConfig{
+							Name:  "doit",
+							Title: "Do it",
+							Type:  "pushbutton",
+						},
+						ScpiName: "DOIT",
+					},
 				},
 			},
 		},
@@ -92,6 +113,7 @@ func (s *ModelSuite) verifyPoll() {
 	s.tester.simpleChat("*IDN?", "some_dev_id")
 	s.tester.simpleChat("MEAS:VOLT?", "12.0")
 	s.tester.simpleChat("CURR?", "3.5")
+	s.tester.simpleChat("MODE?", "1")
 	s.Verify(
 		"driver -> /devices/sample/controls/id/meta/type: [text] (QoS 1, retained)",
 		"driver -> /devices/sample/controls/id/meta/readonly: [1] (QoS 1, retained)",
@@ -110,20 +132,33 @@ func (s *ModelSuite) verifyPoll() {
 		"driver -> /devices/sample/controls/current/meta/order: [3] (QoS 1, retained)",
 		"driver -> /devices/sample/controls/current: [3.5] (QoS 1, retained)",
 		"Subscribe -- driver: /devices/sample/controls/current/on",
+		"driver -> /devices/sample/controls/mode/meta/type: [text] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/mode/meta/name: [Mode] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/mode/meta/readonly: [1] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/mode/meta/order: [4] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/mode: [Bar] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/doit/meta/type: [pushbutton] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/doit/meta/name: [Do it] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/doit/meta/order: [5] (QoS 1, retained)",
+		"Subscribe -- driver: /devices/sample/controls/doit/on",
 	)
 }
 
 func (s *ModelSuite) TestPoll() {
 	s.Start()
 	s.verifyPoll()
-	// second poll doesn't generate .../meta/... and doesn't poll device id
-	s.driver.Poll()
-	s.tester.simpleChat("MEAS:VOLT?", "12.0")
-	s.tester.simpleChat("CURR?", "3.5")
-	s.Verify(
-		"driver -> /devices/sample/controls/voltage: [12.0] (QoS 1, retained)",
-		"driver -> /devices/sample/controls/current: [3.5] (QoS 1, retained)",
-	)
+	for i := 0; i < 3; i++ {
+		// second and the following polls don't generate .../meta/... and doesn't poll device id
+		s.driver.Poll()
+		s.tester.simpleChat("MEAS:VOLT?", "12.0")
+		s.tester.simpleChat("CURR?", "3.5")
+		s.tester.simpleChat("MODE?", "0")
+		s.Verify(
+			"driver -> /devices/sample/controls/voltage: [12.0] (QoS 1, retained)",
+			"driver -> /devices/sample/controls/current: [3.5] (QoS 1, retained)",
+			"driver -> /devices/sample/controls/mode: [Foo] (QoS 1, retained)",
+		)
+	}
 }
 
 func (s *ModelSuite) TestSet() {
@@ -134,6 +169,13 @@ func (s *ModelSuite) TestSet() {
 	s.Verify(
 		"tst -> /devices/sample/controls/current/on: [3.6] (QoS 1)",
 		"driver -> /devices/sample/controls/current: [3.6] (QoS 1, retained)",
+	)
+	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/doit/on", "1", 1, false})
+	s.tester.simpleChat("DOIT; *OPC?", "1")
+	s.Verify(
+		"tst -> /devices/sample/controls/doit/on: [1] (QoS 1)",
+		// note that button value is not retained
+		"driver -> /devices/sample/controls/doit: [1] (QoS 1)",
 	)
 }
 
