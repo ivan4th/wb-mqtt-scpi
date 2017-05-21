@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-var (
-	sampleConfig = &DriverConfig{
+func sampleConfig() *DriverConfig {
+	return &DriverConfig{
 		Ports: []*PortConfig{
 			{
 				PortSettings: &PortSettings{
@@ -64,7 +64,7 @@ var (
 			},
 		},
 	}
-)
+}
 
 type ModelSuite struct {
 	testutils.Suite
@@ -85,9 +85,9 @@ func (s *ModelSuite) SetupTest() {
 	s.FakeMQTTFixture = testutils.NewFakeMQTTFixture(s.T())
 }
 
-func (s *ModelSuite) Start() {
-	s.tester = newCmdTester(s.T(), sampleConfig.Ports[0].Port)
-	s.model = NewModel(DefaultCommanderFactory(s.tester.connect), sampleConfig)
+func (s *ModelSuite) Start(config *DriverConfig) {
+	s.tester = newCmdTester(s.T(), config.Ports[0].Port)
+	s.model = NewModel(DefaultCommanderFactory(s.tester.connect), config)
 	s.pollTriggerCh = make(chan struct{})
 	s.model.SetPollTriggerCh(s.pollTriggerCh)
 	s.client = s.Broker.MakeClient("tst")
@@ -155,7 +155,7 @@ func (s *ModelSuite) verifyPoll() {
 }
 
 func (s *ModelSuite) TestPoll() {
-	s.Start()
+	s.Start(sampleConfig())
 	s.verifyPoll()
 	for i := 0; i < 3; i++ {
 		s.pollTriggerCh <- struct{}{}
@@ -172,9 +172,30 @@ func (s *ModelSuite) TestPoll() {
 		)
 	}
 }
+func (s *ModelSuite) TestPollWithResync() {
+	config := sampleConfig()
+	config.Ports[0].Resync = true
+	s.Start(config)
+	s.verifyPoll()
+	for i := 0; i < 3; i++ {
+		s.pollTriggerCh <- struct{}{}
+
+		// second and the following polls don't generate .../meta/... and doesn't poll device id
+		s.tester.simpleChat("*IDN?", "some_dev_id")
+		s.tester.simpleChat("MEAS:VOLT?", "12.0")
+		s.tester.simpleChat("CURR?", "3.5")
+		s.tester.simpleChat("MODE?", "0")
+
+		s.Verify(
+			"driver -> /devices/sample/controls/voltage: [12.0] (QoS 1, retained)",
+			"driver -> /devices/sample/controls/current: [3.5] (QoS 1, retained)",
+			"driver -> /devices/sample/controls/mode: [Foo] (QoS 1, retained)",
+		)
+	}
+}
 
 func (s *ModelSuite) TestSet() {
-	s.Start()
+	s.Start(sampleConfig())
 	s.verifyPoll()
 	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/current/on", "3.6", 1, false})
 	s.tester.simpleChat("CURR 3.6; *OPC?", "1")

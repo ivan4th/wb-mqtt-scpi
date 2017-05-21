@@ -57,7 +57,8 @@ func (dc *deviceControl) setValueFromDevice(v interface{}) {
 	dc.Lock()
 	defer dc.Unlock()
 	dc.value = dc.config.TransformDeviceValue(v)
-	dc.dirty = !dc.sent || dc.config.ShouldPoll()
+	// should only send id value once
+	dc.dirty = !dc.sent || (dc.config.Name != idControlName && dc.config.ShouldPoll())
 }
 
 func (dc *deviceControl) send(dev wbgo.LocalDeviceModel, observer wbgo.DeviceObserver) {
@@ -184,8 +185,9 @@ func (d *device) identify() bool {
 
 // poll polls the underlying device and marks any updated control as dirty
 func (d *device) poll() {
-	// only poll 'id' once
-	if !d.idControl().wasPolled() && !d.identify() {
+	// only poll 'id' once unless Resync is enabled, in which
+	// case read id on each poll loop
+	if (d.portConfig.Resync || !d.idControl().wasPolled()) && !d.identify() {
 		return
 	}
 

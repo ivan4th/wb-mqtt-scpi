@@ -50,10 +50,14 @@ type PortSettings struct {
 	Port  string
 	// LineEnding can be 'crlf' (default) or 'lf', or empty meaning the default
 	// TODO: the default should be taken from the protocol
-	LineEnding     string
-	IdSubstring    string
-	Protocol       string
-	Prefix         string // FIXME: use protocol-specific address spec
+	LineEnding  string
+	IdSubstring string
+	Protocol    string
+	Prefix      string // FIXME: use protocol-specific address spec
+	// Resync specifies that identification procedure should
+	// be invoked on each poll cycle. This helps with SCPI
+	// devices that go out of sync
+	Resync         bool
 	CommandDelayMs int
 	Setup          []*SetupItem
 }
