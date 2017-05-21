@@ -6,6 +6,7 @@ type Commander interface {
 	Connect()
 	Ready() <-chan struct{}
 	Query(query string) (string, error)
+	Close()
 }
 
 type QueryHandler func(string, interface{})

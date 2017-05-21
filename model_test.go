@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/contactless/wbgo"
 	"github.com/contactless/wbgo/testutils"
 	"testing"
@@ -67,10 +69,11 @@ var (
 type ModelSuite struct {
 	testutils.Suite
 	*testutils.FakeMQTTFixture
-	client *testutils.FakeMQTTClient
-	driver *wbgo.Driver
-	model  *Model
-	tester *cmdTester
+	client        *testutils.FakeMQTTClient
+	driver        *wbgo.Driver
+	model         *Model
+	tester        *cmdTester
+	pollTriggerCh chan struct{}
 }
 
 func (s *ModelSuite) T() *testing.T {
@@ -85,10 +88,12 @@ func (s *ModelSuite) SetupTest() {
 func (s *ModelSuite) Start() {
 	s.tester = newCmdTester(s.T(), sampleConfig.Ports[0].Port)
 	s.model = NewModel(DefaultCommanderFactory(s.tester.connect), sampleConfig)
+	s.pollTriggerCh = make(chan struct{})
+	s.model.SetPollTriggerCh(s.pollTriggerCh)
 	s.client = s.Broker.MakeClient("tst")
 	s.client.Start()
 	s.driver = wbgo.NewDriver(s.model, s.Broker.MakeClient("driver"))
-	s.driver.SetAutoPoll(false)
+	s.driver.SetPollInterval(50 * time.Millisecond)
 	if err := s.driver.Start(); err != nil {
 		s.T().Fatalf("failed to start the driver: %v", err)
 	}
@@ -99,6 +104,9 @@ func (s *ModelSuite) Start() {
 }
 
 func (s *ModelSuite) TearDownTest() {
+	if s.tester != nil {
+		s.tester.close()
+	}
 	if s.driver != nil {
 		s.driver.Stop()
 		s.Verify(
@@ -109,11 +117,13 @@ func (s *ModelSuite) TearDownTest() {
 }
 
 func (s *ModelSuite) verifyPoll() {
-	s.driver.Poll()
+	s.pollTriggerCh <- struct{}{}
+
 	s.tester.simpleChat("*IDN?", "some_dev_id")
 	s.tester.simpleChat("MEAS:VOLT?", "12.0")
 	s.tester.simpleChat("CURR?", "3.5")
 	s.tester.simpleChat("MODE?", "1")
+
 	s.Verify(
 		"driver -> /devices/sample/controls/id/meta/type: [text] (QoS 1, retained)",
 		"driver -> /devices/sample/controls/id/meta/readonly: [1] (QoS 1, retained)",
@@ -148,11 +158,13 @@ func (s *ModelSuite) TestPoll() {
 	s.Start()
 	s.verifyPoll()
 	for i := 0; i < 3; i++ {
+		s.pollTriggerCh <- struct{}{}
+
 		// second and the following polls don't generate .../meta/... and doesn't poll device id
-		s.driver.Poll()
 		s.tester.simpleChat("MEAS:VOLT?", "12.0")
 		s.tester.simpleChat("CURR?", "3.5")
 		s.tester.simpleChat("MODE?", "0")
+
 		s.Verify(
 			"driver -> /devices/sample/controls/voltage: [12.0] (QoS 1, retained)",
 			"driver -> /devices/sample/controls/current: [3.5] (QoS 1, retained)",
@@ -166,12 +178,14 @@ func (s *ModelSuite) TestSet() {
 	s.verifyPoll()
 	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/current/on", "3.6", 1, false})
 	s.tester.simpleChat("CURR 3.6; *OPC?", "1")
+
 	s.Verify(
 		"tst -> /devices/sample/controls/current/on: [3.6] (QoS 1)",
 		"driver -> /devices/sample/controls/current: [3.6] (QoS 1, retained)",
 	)
 	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/doit/on", "1", 1, false})
 	s.tester.simpleChat("DOIT; *OPC?", "1")
+
 	s.Verify(
 		"tst -> /devices/sample/controls/doit/on: [1] (QoS 1)",
 		// note that button value is not retained
@@ -179,7 +193,7 @@ func (s *ModelSuite) TestSet() {
 	)
 }
 
-func TestSmartbusDriverSuite(t *testing.T) {
+func TestModelSuite(t *testing.T) {
 	testutils.RunSuites(t, new(ModelSuite))
 }
 

@@ -70,11 +70,13 @@ var defaultClock = &DefaultClock{}
 
 type DeviceCommander struct {
 	sync.Mutex
-	settings  *PortSettings
-	connector Connector
-	readyCh   chan struct{}
-	c         *connectionWrapper
-	clock     Clock
+	settings   *PortSettings
+	connector  Connector
+	readyCh    chan struct{}
+	c          *connectionWrapper
+	clock      Clock
+	active     bool
+	connecting bool
 }
 
 var _ Commander = &DeviceCommander{}
@@ -104,8 +106,22 @@ func (dc *DeviceCommander) setup(c *connectionWrapper) error {
 }
 
 func (dc *DeviceCommander) Connect() {
+	dc.Lock()
+	defer dc.Unlock()
+	if dc.connecting {
+		return
+	}
+	dc.active = true
+	dc.connecting = true
 	go func() {
 		for {
+			dc.Lock()
+			if !dc.active {
+				dc.connecting = false
+				dc.Unlock()
+				break
+			}
+			dc.Unlock()
 			wbgo.Debug.Printf("connecting to %s", dc.settings.Port)
 			conn, err := dc.connector(dc.settings.Port)
 			if err != nil {
@@ -113,8 +129,16 @@ func (dc *DeviceCommander) Connect() {
 				<-dc.clock.After(reconnectDelay)
 				continue
 			}
+
 			dc.Lock()
 			defer dc.Unlock()
+			dc.connecting = false
+			if !dc.active {
+				if err := conn.Close(); err != nil {
+					wbgo.Error.Printf("Error closing the connection: %v", err)
+				}
+				break
+			}
 			dc.c = newConnectionWrapper(conn, dc.settings.LineEnding == "cr")
 			wbgo.Debug.Printf("connected to %s", dc.settings.Port)
 			// TODO: avoid holding mutex during 'setup'. We need state machine
@@ -128,16 +152,21 @@ func (dc *DeviceCommander) Connect() {
 }
 
 func (dc *DeviceCommander) reconnect() {
-	dc.Lock()
-	defer dc.Unlock()
-	wbgo.Debug.Printf("initiating reconnect\n")
-	if dc.c != nil {
-		if err := dc.c.Close(); err != nil {
-			wbgo.Error.Printf("Error closing the connection: %v", err)
+	func() {
+		dc.Lock()
+		defer dc.Unlock()
+		if !dc.active || dc.connecting {
+			return
 		}
-		dc.c = nil
-	}
-	dc.readyCh = make(chan struct{})
+		wbgo.Debug.Printf("initiating reconnect\n")
+		if dc.c != nil {
+			if err := dc.c.Close(); err != nil {
+				wbgo.Error.Printf("Error closing the connection: %v", err)
+			}
+			dc.c = nil
+		}
+		dc.readyCh = make(chan struct{})
+	}()
 	dc.Connect()
 }
 
@@ -173,6 +202,28 @@ func (dc *DeviceCommander) Query(query string) (string, error) {
 	}
 	dc.reconnect()
 	return "", err
+}
+
+func (dc *DeviceCommander) Close() {
+	dc.Lock()
+	dc.active = false
+	for dc.connecting {
+		dc.Unlock()
+		time.Sleep(100 * time.Millisecond)
+		dc.Lock()
+	}
+	defer dc.Unlock()
+	if dc.c == nil {
+		return
+	}
+	wbgo.Debug.Printf("closing the commander\n")
+	if dc.c != nil {
+		if err := dc.c.Close(); err != nil {
+			wbgo.Error.Printf("Error closing the connection: %v", err)
+		}
+		dc.c = nil
+	}
+	dc.readyCh = make(chan struct{})
 }
 
 func (dc *DeviceCommander) maybeDelay() {

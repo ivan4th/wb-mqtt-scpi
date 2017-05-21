@@ -97,14 +97,15 @@ func (fc *fakeConnection) Close() error {
 
 type cmdTester struct {
 	*fakeClock
-	t            *testing.T
-	ourReader    *bufio.Reader
-	ourWriter    io.Writer
-	fc           *fakeConnection
-	connectCount int
-	connectPort  string
-	connectCh    chan struct{}
-	lineEnding   string
+	t              *testing.T
+	ourInnerReader *io.PipeReader
+	ourReader      *bufio.Reader
+	ourWriter      *io.PipeWriter
+	fc             *fakeConnection
+	connectCount   int
+	connectPort    string
+	connectCh      chan struct{}
+	lineEnding     string
 }
 
 func newCmdTester(t *testing.T, connectPort string) *cmdTester {
@@ -193,6 +194,7 @@ func (tester *cmdTester) connect(port string) (io.ReadWriteCloser, error) {
 	}
 	ourInnerReader, theirWriter := io.Pipe()
 	theirReader, ourWriter := io.Pipe()
+	tester.ourInnerReader = ourInnerReader
 	tester.ourReader = bufio.NewReader(ourInnerReader)
 	tester.ourWriter = ourWriter
 	tester.fc = &fakeConnection{
@@ -210,6 +212,11 @@ func (tester *cmdTester) verifyConnectCount(expectedCount int) {
 	if tester.connectCount != expectedCount {
 		tester.t.Errorf("Invalid connect count, expected %d but got %d", expectedCount, tester.connectCount)
 	}
+}
+
+func (tester *cmdTester) close() {
+	tester.ourInnerReader.Close()
+	tester.ourWriter.Close()
 }
 
 func TestCommander(t *testing.T) {
@@ -369,6 +376,10 @@ func (c *fakeCommander) Query(query string) (string, error) {
 		return "", err
 	}
 	return item.resp, nil
+}
+
+func (c *fakeCommander) Close() {
+	c.connected = false
 }
 
 func (c *fakeCommander) enqueue(items ...string) {
