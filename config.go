@@ -145,6 +145,10 @@ func (config *PortConfig) GetControls() ([]*ControlConfig, map[string]ParameterS
 			if control.Name == "" {
 				return nil, nil, errors.New("Got control without name")
 			}
+			if control.Type == "pushbutton" {
+				// FIXME
+				control.Writable = true
+			}
 			if control.Writable && param.Settable() && paramSetMap[control.Name] == nil {
 				paramSetMap[control.Name] = param
 			}
@@ -159,12 +163,6 @@ func (config *PortConfig) GetControls() ([]*ControlConfig, map[string]ParameterS
 				return nil, nil, err
 			}
 			*prev = *merged
-		}
-	}
-	for _, c := range controls {
-		// FIXME
-		if c.Type == "pushbutton" {
-			c.Writable = true
 		}
 	}
 	return controls, paramSetMap, nil
