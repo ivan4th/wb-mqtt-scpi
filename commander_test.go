@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -20,19 +22,24 @@ type fakeClockDeadline struct {
 }
 
 type fakeClock struct {
+	sync.Mutex
 	time      time.Time
 	deadlines []fakeClockDeadline
 }
 
 func newFakeClock() *fakeClock {
-	return &fakeClock{time.Now(), nil}
+	return &fakeClock{time: time.Now()}
 }
 
 func (c *fakeClock) Now() time.Time {
+	c.Lock()
+	defer c.Unlock()
 	return c.time
 }
 
 func (c *fakeClock) After(d time.Duration) <-chan time.Time {
+	c.Lock()
+	defer c.Unlock()
 	t := c.time.Add(d)
 	ch := make(chan time.Time)
 	c.deadlines = append(c.deadlines, fakeClockDeadline{t, ch})
@@ -40,6 +47,8 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 }
 
 func (c *fakeClock) elapse(d time.Duration) {
+	c.Lock()
+	defer c.Unlock()
 	c.time = c.time.Add(d)
 	deadlines := c.deadlines
 	c.deadlines = []fakeClockDeadline{}
@@ -118,7 +127,7 @@ func newCmdTester(t *testing.T, connectPort string) *cmdTester {
 	}
 }
 
-func (tester *cmdTester) expectCommand(cmd string) {
+func (tester *cmdTester) expectCommands(cmds []string) string {
 	var l string
 	errCh := make(chan error)
 	go func() {
@@ -129,15 +138,23 @@ func (tester *cmdTester) expectCommand(cmd string) {
 	}()
 	select {
 	case <-time.After(30 * time.Second):
-		tester.t.Fatalf("timed out waiting for command: %v", cmd)
+		tester.t.Fatalf("timed out waiting for command(s): %v", cmds)
 	case err := <-errCh:
 		if err != nil {
-			tester.t.Fatalf("failed to read the command, expected: %v", cmd)
+			tester.t.Fatalf("failed to read the command(s), expected: %v", cmds)
 		}
 	}
-	if l != cmd+tester.lineEnding {
-		tester.t.Errorf("invalid command: %#v instead of %#v", l, cmd+tester.lineEnding)
+	for _, cmd := range cmds {
+		if l == cmd+tester.lineEnding {
+			return cmd
+		}
 	}
+	tester.t.Fatalf("invalid command: %#v (expected one of %#v)", l, cmds)
+	return ""
+}
+
+func (tester *cmdTester) expectCommand(cmd string) {
+	tester.expectCommands([]string{cmd})
 }
 
 func (tester *cmdTester) writeResponse(response string) {
@@ -173,6 +190,27 @@ func (tester *cmdTester) simpleChat(cmd, response string) {
 	tester.expectCommand(cmd)
 	if response != "" {
 		tester.writeResponse(response)
+	}
+}
+
+func (tester *cmdTester) unorderedChat(cmdsAndResponses map[string]string) {
+	gotCmds := make(map[string]bool)
+	cmds := make([]string, len(cmdsAndResponses))
+	n := 0
+	for cmd, _ := range cmdsAndResponses {
+		cmds[n] = cmd
+		n++
+	}
+	sort.Strings(cmds)
+	for n := 0; n < len(cmdsAndResponses); n++ {
+		cmd := tester.expectCommands(cmds)
+		if gotCmds[cmd] {
+			tester.t.Fatalf("duplicate command %q", cmd)
+		}
+		gotCmds[cmd] = true
+		if cmdsAndResponses[cmd] != "" {
+			tester.writeResponse(cmdsAndResponses[cmd])
+		}
 	}
 }
 
@@ -303,6 +341,7 @@ func TestReconnect(t *testing.T) {
 		t.Errorf("Identify() didn't return the expected error")
 	}
 
+	tester.elapse(10 * time.Second)
 	newReadyCh := commander.Ready()
 	if newReadyCh == readyCh {
 		t.Fatalf("readyCh didn't change")

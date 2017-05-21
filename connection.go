@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	serialTimeout = 250 * time.Millisecond
+	serialTimeout = 500 * time.Millisecond
 	tcpTimeout    = 500 * time.Millisecond
 )
 

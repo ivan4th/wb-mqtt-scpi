@@ -4,8 +4,13 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/contactless/wbgo"
+)
+
+const (
+	minPollInterval = 50 * time.Millisecond
 )
 
 type deviceControl struct {
@@ -14,6 +19,7 @@ type deviceControl struct {
 	config        *ControlConfig
 	dirty         bool
 	sent          bool
+	writing       bool
 	value         string
 }
 
@@ -56,9 +62,26 @@ func (dc *deviceControl) wasPolled() bool {
 func (dc *deviceControl) setValueFromDevice(v interface{}) {
 	dc.Lock()
 	defer dc.Unlock()
+	if dc.writing {
+		return
+	}
 	dc.value = dc.config.TransformDeviceValue(v)
 	// should only send id value once
 	dc.dirty = !dc.sent || (dc.config.Name != idControlName && dc.config.ShouldPoll())
+}
+
+func (dc *deviceControl) startWrite(value string) {
+	dc.Lock()
+	defer dc.Unlock()
+	dc.value = value
+	dc.dirty = false
+	dc.writing = true
+}
+
+func (dc *deviceControl) endWrite() {
+	dc.Lock()
+	defer dc.Unlock()
+	dc.writing = false
 }
 
 func (dc *deviceControl) send(dev wbgo.LocalDeviceModel, observer wbgo.DeviceObserver) {
@@ -173,6 +196,7 @@ func (d *device) identify() bool {
 	if err != nil {
 		select {
 		case <-d.stopCh:
+			return false
 			// ignore errors if stopping
 		default:
 			wbgo.Error.Printf("Identify() failed for device %s: %v", d.portConfig.Name, err)
@@ -250,7 +274,9 @@ func (d *device) AcceptOnValue(name, value string) bool {
 		wbgo.Error.Printf("no settable parameter for control %q in device %q", name, d.portConfig.Name)
 		return false
 	}
+	dc.startWrite(value)
 	dc.settableParam.Set(d.commander, dc.config.Name, value)
+	dc.endWrite()
 	return true
 }
 
@@ -315,24 +341,41 @@ func (m *Model) Start() error {
 			<-d.commander.Ready()
 		}
 		close(m.readyCh)
-	pollLoop:
-		for {
-			if m.pollTriggerCh != nil {
-				select {
-				case <-m.stopCh:
-					break pollLoop
-				case <-m.pollTriggerCh:
+		var wg sync.WaitGroup
+		for _, dev := range m.devs {
+			d := dev
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+			pollLoop:
+				for {
+					nextAt := time.Now().Add(minPollInterval)
+					if m.pollTriggerCh != nil {
+						select {
+						case <-m.stopCh:
+							break pollLoop
+						case <-m.pollTriggerCh:
+						}
+					} else {
+						select {
+						case <-m.stopCh:
+							break pollLoop
+						default:
+						}
+					}
+					d.poll()
+					now := time.Now()
+					if nextAt.After(now) {
+						select {
+						case <-m.stopCh:
+							break pollLoop
+						case <-time.After(nextAt.Sub(now)):
+						}
+					}
 				}
-			}
-			for _, d := range m.devs {
-				select {
-				case <-m.stopCh:
-					break pollLoop
-				default:
-				}
-				d.poll()
-			}
+			}()
 		}
+		wg.Wait()
 		close(m.stoppedCh)
 	}()
 	return nil

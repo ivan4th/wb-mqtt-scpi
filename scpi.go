@@ -45,6 +45,7 @@ func (spec *scpiParameterSpec) Validate() error {
 type scpiParameter struct {
 	scpiName, name string
 	skipValue      bool
+	prefix         string
 }
 
 var _ Parameter = &scpiParameter{}
@@ -65,10 +66,11 @@ func (p *scpiParameter) Set(c Commander, name string, value interface{}) error {
 		return fmt.Errorf("unknown control name %q", name)
 	}
 	var q string
+	// FIXME: instead of prefix, should use slave addr (and build the whole command)
 	if p.skipValue {
-		q = fmt.Sprintf("%s; *OPC?", p.scpiName)
+		q = fmt.Sprintf("%s; %s*OPC?", p.scpiName, p.prefix)
 	} else {
-		q = fmt.Sprintf("%s %s; *OPC?", p.scpiName, value)
+		q = fmt.Sprintf("%s %s; %s*OPC?", p.scpiName, value, p.prefix)
 	}
 	if r, err := c.Query(q); err != nil {
 		return err
@@ -79,13 +81,13 @@ func (p *scpiParameter) Set(c Commander, name string, value interface{}) error {
 }
 
 type scpiProtocol struct {
-	idSubstring string
+	idSubstring, prefix string
 }
 
 var _ Protocol = &scpiProtocol{}
 
 func newScpiProtocol(config *PortConfig) (Protocol, error) {
-	return &scpiProtocol{config.IdSubstring}, nil
+	return &scpiProtocol{config.IdSubstring, config.Prefix}, nil
 }
 
 func (p *scpiProtocol) Identify(c Commander) (r string, err error) {
@@ -116,6 +118,7 @@ func (p *scpiProtocol) Parameter(spec ParameterSpec) (Parameter, error) {
 		scpiName:  scpiSpec.ScpiName,
 		name:      scpiSpec.Control.Name,
 		skipValue: scpiSpec.Control.Type == "pushbutton", // FIXME
+		prefix:    p.prefix,
 	}, nil
 }
 

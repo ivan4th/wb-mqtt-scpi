@@ -214,6 +214,30 @@ func (s *ModelSuite) TestSet() {
 	)
 }
 
+func (s *ModelSuite) TestReadWriteConflict() {
+	s.Start(sampleConfig())
+	s.verifyPoll()
+	s.pollTriggerCh <- struct{}{}
+
+	s.tester.simpleChat("MEAS:VOLT?", "12.0")
+	s.tester.expectCommand("CURR?")
+	s.client.Publish(wbgo.MQTTMessage{"/devices/sample/controls/current/on", "3.6", 1, false})
+	s.tester.writeResponse("3.5")
+	s.tester.unorderedChat(map[string]string{
+		"CURR 3.6; *OPC?": "1",
+		"MODE?":           "0",
+	})
+
+	s.VerifyUnordered(
+		// the order may be volatile but the important part
+		// is that we should only get 3.6 for 'current' here
+		"tst -> /devices/sample/controls/current/on: [3.6] (QoS 1)",
+		"driver -> /devices/sample/controls/voltage: [12.0] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/current: [3.6] (QoS 1, retained)",
+		"driver -> /devices/sample/controls/mode: [Foo] (QoS 1, retained)",
+	)
+}
+
 func TestModelSuite(t *testing.T) {
 	testutils.RunSuites(t, new(ModelSuite))
 }
