@@ -321,8 +321,13 @@ func (m *Model) Start() error {
 		return errNoPortsDefined
 	}
 	m.devs = []*device{}
+	commanders := make(map[string]Commander)
 	for _, portConfig := range m.config.Ports {
-		commander := m.cmdFactory(portConfig.PortSettings)
+		commander, found := commanders[portConfig.Port]
+		if !found {
+			commander = m.cmdFactory(portConfig.PortSettings)
+			commanders[portConfig.Port] = commander
+		}
 		dev, err := newDevice(commander, portConfig, m.stopCh)
 		if err != nil {
 			return fmt.Errorf("failed to set up device %q: %v", portConfig.Name, err)
