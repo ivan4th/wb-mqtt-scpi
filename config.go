@@ -60,6 +60,7 @@ type PortSettings struct {
 	Resync         bool
 	CommandDelayMs int
 	Setup          []*SetupItem
+	Address        int // TODO: use this instead of prefix
 }
 
 func (s *PortSettings) CommandDelay() time.Duration {

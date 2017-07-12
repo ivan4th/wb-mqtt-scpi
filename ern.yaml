@@ -1,0 +1,61 @@
+ports:
+- name: ern1
+  title: ERN 1
+  port: /dev/ttyUSB0
+  protocol: ern
+  idsubstring: "-1200-220"
+  lineending: cr
+  address: 44
+  commanddelayms: 100
+  resync: true
+  parameters:
+  - command: "41"
+    resplen: 20
+    respskip: 1
+    controls:
+    - name: U
+      units: mV
+      type: value
+    - name: I
+      units: mA
+      type: value
+  - command: "1E"
+    controls:
+    - name: On
+      type: pushbutton
+      writable: true
+  - command: "1D"
+    controls:
+    - name: Off
+      type: pushbutton
+      writable: true
+- name: ern2
+  title: ERN 2
+  port: /dev/ttyUSB0
+  protocol: ern
+  idsubstring: "-1200-220"
+  lineending: cr
+  address: 46
+  commanddelayms: 100
+  resync: true
+  parameters:
+  - command: "41"
+    resplen: 20
+    respskip: 1
+    controls:
+    - name: U
+      units: mV
+      type: value
+    - name: I
+      units: mA
+      type: value
+  - command: "1E"
+    controls:
+    - name: On
+      type: pushbutton
+      writable: true
+  - command: "1D"
+    controls:
+    - name: Off
+      type: pushbutton
+      writable: true
