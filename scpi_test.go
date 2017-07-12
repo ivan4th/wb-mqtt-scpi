@@ -62,38 +62,6 @@ func verifyQuery(t *testing.T, commander Commander, param Parameter, expectedNam
 	return r, err
 }
 
-func TestScpiWithFakeCommander(t *testing.T) {
-	commander := newFakeCommander(t)
-	protocol, err := CreateProtocol(scpiPortConfig)
-	if err != nil {
-		t.Fatalf("CreateProtocol(): %v", err)
-	}
-	commander.Connect()
-	<-commander.Ready()
-
-	commander.enqueue("*IDN?", "IZNAKURNOZH")
-	id, err := protocol.Identify(commander)
-	if err != nil {
-		t.Fatalf("Identify(): %v", err)
-	}
-	if id != "IZNAKURNOZH" {
-		t.Errorf("Bad id %q", id)
-	}
-	commander.verifyAndFlush()
-
-	commander.enqueue("CURR?", "3.500")
-	param, err := protocol.Parameter(scpiPortConfig.Parameters[0])
-	if err != nil {
-		t.Fatalf("Parameter(): %v", err)
-	}
-	verifyQuery(t, commander, param, "current1")
-	commander.verifyAndFlush()
-
-	commander.enqueue("CURR 3.4; *OPC?", "1")
-	param.Set(commander, "current1", "3.4")
-	commander.verifyAndFlush()
-}
-
 func TestScpi(t *testing.T) {
 	tester, commander, protocol := prepareScpiTest(t)
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
@@ -134,4 +102,40 @@ func TestScpiBadIdn(t *testing.T) {
 			t.Fatalf("Identify() failed: %v", err)
 		}
 	}
+}
+
+var scpiConfig = `
+ports:
+- name: somedev
+  port: someport
+  protocol: scpi
+  idsubstring: IZNAKURNOZH
+  parameters:
+  - name: current1
+    title: Current 1
+    units: A
+    writable: true
+    scpiname: CURR
+`
+
+func TestScpiWithFakeCommander(t *testing.T) {
+	pt := newProtocolTester(t, scpiConfig)
+
+	pt.commander.enqueue("*IDN?", "IZNAKURNOZH")
+	id, err := pt.protocol.Identify(pt.commander)
+	if err != nil {
+		t.Fatalf("Identify(): %v", err)
+	}
+	if id != "IZNAKURNOZH" {
+		t.Errorf("Bad id %q", id)
+	}
+	pt.commander.verifyAndFlush()
+
+	pt.commander.enqueue("CURR?", "3.500")
+	pt.verifyQuery(0, map[string]interface{}{"current1": "3.500"})
+	pt.commander.verifyAndFlush()
+
+	pt.commander.enqueue("CURR 3.4; *OPC?", "1")
+	pt.verifySet(0, "current1", "3.4")
+	pt.commander.verifyAndFlush()
 }
