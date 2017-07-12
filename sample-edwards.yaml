@@ -1,0 +1,274 @@
+ports:
+- name: tic200
+  title: TIC-200
+  port: /dev/ttyS1
+  # port: 192.168.255.209:10011
+  # port: localhost:10011
+  lineending: cr
+  protocol: edwards
+  idsubstring: TIC200
+  parameters:
+  - oid: 902
+    read: "?V"
+    controls:
+    - name: turboState
+      title: Turbo State
+      type: text
+      enum: *pumpState
+    - name: backingState
+      title: Backing State
+      type: text
+      # FIXME: not sure this is correct
+      enum: *state
+    - name: gaugeState1
+      title: Gauge State 1
+      type: text
+      enum: *gaugeState
+    - name: gaugeState2
+      title: Gauge State 2
+      type: text
+      enum: *gaugeState
+    - name: gaugeState3
+      title: Gauge State 3
+      type: text
+      enum: *gaugeState
+    - name: relayState1
+      title: Relay State 1
+      type: text
+      # FIXME: not sure this is correct
+      enum: *state
+    - name: relayState2
+      title: Relay State 2
+      type: text
+      # FIXME: not sure this is correct
+      enum: *state
+    - name: relayState3
+      title: Relay State 3
+      type: text
+      # FIXME: not sure this is correct
+      enum: *state
+    - name: ticStatusAlertId
+      title: TIC Status alert ID
+      type: text
+      enum: *alertId
+    - name: ticStatusPriority
+      title: TIC Status priority
+      type: text
+      enum: *priority
+  - oid: 913
+    read: "?V"
+    controls:
+    - name: gauge1Value
+      title: Gauge 1 value
+      type: value
+    - name: gauge1UnitsType
+      title: Gauge 1 units
+      type: text
+      enum: *snvt
+    - name: gauge1State
+      title: Gauge 1 state
+      type: text
+      enum: *gaugeState
+    - name: gauge1AlertId
+      title: Gauge 1 alert ID
+      type: text
+      enum: *alertId
+    - name: gauge1Priority
+      title: Gauge 1 priority
+      type: text
+      enum: *priority
+  - oid: 904
+    write: "!C"
+    sub: 0
+    controls:
+    - name: turboPumpOff
+      title: Turbo Pump Off
+      type: pushbutton
+      writable: true
+  - oid: 904
+    write: "!C"
+    sub: 1
+    controls:
+    - name: turboPumpOn
+      title: Turbo Pump On
+      type: pushbutton
+      writable: true
+  - oid: 905
+    read: "?V"
+    controls:
+    - name: turboSpeed
+      title: Turbo Speed
+      type: value
+      units: "%"
+    - name: turboAlertId
+      title: Turbo alert ID
+      type: text
+      enum: *alertId
+    - name: turboPriority
+      title: Turbo priority
+      type: text
+      enum: *priority
+  - oid: 910
+    write: "!C"
+    sub: 0
+    controls:
+    - name: backingPumpOff
+      title: Backing Pump Off
+      type: pushbutton
+      writable: true
+  - oid: 910
+    write: "!C"
+    sub: 1
+    controls:
+    - name: backingPumpOn
+      title: Backing Pump On
+      type: pushbutton
+      writable: true
+  - oid: 916
+    write: "!C"
+    sub: 0
+    controls:
+    - name: relay1Off
+      title: Relay 1 Off
+      type: pushbutton
+      writable: true
+  - oid: 916
+    write: "!C"
+    sub: 1
+    controls:
+    - name: relay1On
+      title: Relay 1 On
+      type: pushbutton
+      writable: true
+  - oid: 917
+    write: "!C"
+    sub: 0
+    controls:
+    - name: relay2Off
+      title: Relay 2 Off
+      type: pushbutton
+      writable: true
+  - oid: 917
+    write: "!C"
+    sub: 1
+    controls:
+    - name: relay2On
+      title: Relay 2 On
+      type: pushbutton
+      writable: true
+  - oid: 918
+    write: "!C"
+    sub: 0
+    controls:
+    - name: relay3Off
+      title: Relay 3 Off
+      type: pushbutton
+      writable: true
+  - oid: 918
+    write: "!C"
+    sub: 1
+    controls:
+    - name: relay3On
+      title: Relay 3 On
+      type: pushbutton
+      writable: true
+enums:
+- &priority
+  # 1.7.2
+  0: OK
+  1: warning
+  2: alarm 1
+  3: alarm 2
+- &alertId
+  # 1.7.3
+  0: No Alert
+  1: ADC Fault
+  2: ADC Not Ready
+  3: Over Range
+  4: Under Range
+  5: ADC Invalid
+  6: No Gauge
+  7: Unknown
+  8: Not Supported
+  9: New ID
+  10: Over Range
+  11: Under Range
+  12: Over Range
+  13: Ion Em Timeout
+  14: Not Struck
+  15: Filament Fail
+  16: Mag Fail
+  17: Striker Fail
+  18: Not Struck
+  19: Filament Fail
+  20: Cal Error
+  21: Initialising
+  22: Emission Error
+  23: Over Pressure
+  24: ASG Cant Zero
+  25: RampUp Timeout
+  26: Droop Timeout
+  27: Run Hours High
+  28: SC Interlock
+  29: ID Volts Error
+  30: Serial ID Fail
+  31: Upload Active
+  32: DX Fault
+  33: Temp Alert
+  34: SYSI Inhibit
+  35: Ext Inhibit
+  36: Temp Inhibit
+  37: No Reading
+  38: No Message
+  39: NOV Failure
+  40: Upload Timeout
+  41: Download Failed
+  42: No Tube
+  43: Use Gauges 4-6
+  44: Degas Inhibited
+  45: IGC Inhibited
+  46: Brownout/Short
+  47: Service due
+- &snvt
+  # 1.7.4
+  66: VOLTAGE
+  59: PRESSURE
+  81: PERCENT
+- &state
+  # 1.7.6
+  0: Off
+  1: Off Going On
+  2: On Going Off Shutdown
+  3: On Going Off Normal
+  4: On
+- &gaugeState
+  # 1.7.7
+  0: Not connected
+  1: Connected
+  2: New Gauge Id
+  3: Gauge Change
+  4: Gauge In Alert
+  5: Off
+  6: Striking
+  7: Initialising
+  8: Calibrating
+  9: Zeroing
+  10: Degassing
+  11: On
+  12: Inhibited
+- &pumpState
+  # 1.7.8
+  0: Stopped
+  1: Starting Delay
+  5: Accelerating
+  4: Running
+  2: Stopping Short Delay
+  3: Stopping Normal Delay
+  6: Fault Braking
+  7: Braking
+# TODO: error codes should be specified in this file, too
+# TODO: fix multiport polling
+# TODO: support yaml includes
+# TODO: fix control ordering
+# TODO: drain the connection on protocol error!
+# (i.e. don't do it upon correct error response -- use special error type for it)
