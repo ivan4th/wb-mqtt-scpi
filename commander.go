@@ -43,11 +43,39 @@ func (c connectionWrapper) Close() error {
 	return c.innerConn.Close()
 }
 
-func (c connectionWrapper) sendCommand(command, lineEnding string, readResponse bool, now time.Time) (string, error) {
+func (c connectionWrapper) readResponse(lineEnding string) (string, error) {
+	delim := lineEnding[len(lineEnding)-1]
+	resp, err := c.ReadString(delim)
+	if err == ErrTimeout {
+		return "", err
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+	switch {
+	case len(resp) >= len(lineEnding) && resp[len(resp)-len(lineEnding):] == lineEnding:
+		return resp[:len(resp)-len(lineEnding)], nil
+	case resp[len(resp)-1] == delim:
+		// allow responses to cmd + "\r\n" to end with just "\n"
+		return resp[:len(resp)-1], nil
+	default:
+		return resp, nil
+	}
+}
+
+func (c connectionWrapper) readFixedSizeResponse(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(c, buf); err != nil {
+		return "", fmt.Errorf("error reading fixed size response: %v", err)
+	}
+	return string(buf), nil
+}
+
+func (c connectionWrapper) sendCommand(command, lineEnding string, now time.Time) error {
 	wbgo.Debug.Printf("sendCommand: %q", command)
 	if err := c.SetDeadline(now.Add(commanderTimeout)); err != nil {
 		wbgo.Debug.Printf("Query: SetDeadline error: %v", err)
-		return "", fmt.Errorf("SetDeadline error: %v", err)
+		return fmt.Errorf("SetDeadline error: %v", err)
 	}
 
 	_, err := c.Write([]byte(command + lineEnding))
@@ -55,30 +83,10 @@ func (c connectionWrapper) sendCommand(command, lineEnding string, readResponse 
 		err = c.Flush()
 	}
 	if err != nil {
-		return "", fmt.Errorf("write error: %v", err)
-	}
-	if !readResponse {
-		return "", nil
+		return fmt.Errorf("write error: %v", err)
 	}
 
-	lastChar := lineEnding[len(lineEnding)-1]
-	resp, err := c.ReadString(lastChar)
-	if err == ErrTimeout {
-		return "", err
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %v", err)
-	}
-	wbgo.Debug.Printf("sendCommand: resp for %q: %#v", command, resp)
-	switch {
-	case len(resp) >= len(lineEnding) && resp[len(resp)-len(lineEnding):] == lineEnding:
-		return resp[:len(resp)-len(lineEnding)], nil
-	case resp[len(resp)-1] == lastChar:
-		// allow responses to cmd + "\r\n" to end with just "\n"
-		return resp[:len(resp)-1], nil
-	default:
-		return resp, nil
-	}
+	return nil
 }
 
 type Clock interface {
@@ -99,9 +107,10 @@ func (c *DefaultClock) After(d time.Duration) <-chan time.Time {
 var defaultClock = &DefaultClock{}
 
 type commandItem struct {
-	command    string
-	errCh      chan error
-	responseCh chan string
+	command           string
+	fixedResponseSize int
+	errCh             chan error
+	responseCh        chan string
 }
 
 type commanderState interface {
@@ -295,7 +304,33 @@ func (s *commanderStateBusy) send(dc *DeviceCommander) commanderState {
 		errCh := make(chan error)
 		respCh := make(chan string)
 		go func() {
-			resp, err := c.sendCommand(dc.settings.Prefix+item.command, dc.lineEnding(), true, dc.clock.Now())
+			command := dc.settings.Prefix + item.command
+			err := c.sendCommand(command, dc.lineEnding(), dc.clock.Now())
+			if err != nil {
+				errCh <- err
+				return
+			}
+			var resp string
+			if item.fixedResponseSize > 0 {
+				resp, err = c.readFixedSizeResponse(item.fixedResponseSize)
+				if err == nil {
+					select {
+					case <-dc.clock.After(dc.settings.CommandDelay()):
+					case <-s.stopCh:
+						return
+					}
+					_, err = c.Write([]byte(dc.lineEnding()))
+					if err == nil {
+						err = c.Flush()
+					}
+					if err != nil {
+						err = fmt.Errorf("error writing flush sequence: %v", err)
+					}
+				}
+			} else {
+				resp, err = c.readResponse(dc.lineEnding())
+			}
+			wbgo.Debug.Printf("response for %q: %#v", command, resp)
 			if err != nil {
 				errCh <- err
 			} else {
@@ -424,12 +459,17 @@ func (dc *DeviceCommander) stateAction(thunk func(state commanderState) commande
 
 func (dc *DeviceCommander) setup(c *connectionWrapper) error {
 	for _, si := range dc.settings.Setup {
-		resp, err := c.sendCommand(dc.settings.Prefix+si.Command, dc.lineEnding(), si.Response != "", dc.clock.Now())
-		if err != nil {
+		if err := c.sendCommand(dc.settings.Prefix+si.Command, dc.lineEnding(), dc.clock.Now()); err != nil {
 			return err
 		}
-		if si.Response != "" && resp != si.Response {
-			return fmt.Errorf("invalid response to %q: %q", resp, si.Response)
+		if si.Response != "" {
+			resp, err := c.readResponse(dc.lineEnding())
+			if err != nil {
+				return err
+			}
+			if resp != si.Response {
+				return fmt.Errorf("invalid response to %q: %q", resp, si.Response)
+			}
 		}
 	}
 	wbgo.Debug.Printf("setup done for %s", dc.settings.Port)
@@ -471,11 +511,12 @@ func (dc *DeviceCommander) SetClock(clock Clock) {
 	dc.clock = clock
 }
 
-func (dc *DeviceCommander) Query(query string) (string, error) {
+func (dc *DeviceCommander) Query(query string, fixedResponseSize int) (string, error) {
 	item := &commandItem{
-		command:    query,
-		errCh:      make(chan error, 1),
-		responseCh: make(chan string, 1),
+		command:           query,
+		fixedResponseSize: fixedResponseSize,
+		errCh:             make(chan error, 1),
+		responseCh:        make(chan string, 1),
 	}
 	dc.stateAction(func(s commanderState) commanderState { return s.Command(dc, item) })
 	select {

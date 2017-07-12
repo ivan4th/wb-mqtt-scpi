@@ -163,6 +163,12 @@ func (tester *cmdTester) writeResponse(response string) {
 	}
 }
 
+func (tester *cmdTester) writeResponseWithoutLineEnding(response string) {
+	if _, err := tester.ourWriter.Write([]byte(response)); err != nil {
+		tester.t.Fatalf("Write failed: %v", err)
+	}
+}
+
 func (tester *cmdTester) respondToCommand(response string, ch chan string) {
 	tester.writeResponse(response)
 	result := <-ch
@@ -264,23 +270,23 @@ func TestCommander(t *testing.T) {
 	<-commander.Ready()
 	commander.SetClock(tester)
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
-		return commander.Query("*IDN?")
+		return commander.Query("*IDN?", 0)
 	})
 	tester.chat("CURR?", "3.500", func() (string, error) {
-		return commander.Query("CURR?")
+		return commander.Query("CURR?", 0)
 	})
 	tester.chat("CURR 3.4; *OPC?", "1", func() (string, error) {
-		return commander.Query("CURR 3.4; *OPC?")
+		return commander.Query("CURR 3.4; *OPC?", 0)
 	})
 	// make sure setting the value didn't break DeviceCommander
 	tester.chat("CURR?", "3.400", func() (string, error) {
-		return commander.Query("CURR?")
+		return commander.Query("CURR?", 0)
 	})
 
 	tester.fc.readTime = tester.time.Add(10 * time.Second)
 	errCh := make(chan error)
 	go func() {
-		_, err := commander.Query("CURR?")
+		_, err := commander.Query("CURR?", 0)
 		errCh <- err
 	}()
 	if _, err := tester.ourReader.ReadString('\n'); err != nil {
@@ -294,7 +300,7 @@ func TestCommander(t *testing.T) {
 
 	// make sure things didn't break, again
 	tester.chat("CURR?", "3.400", func() (string, error) {
-		return commander.Query("CURR?")
+		return commander.Query("CURR?", 0)
 	})
 }
 
@@ -320,7 +326,7 @@ func TestCommanderSetup(t *testing.T) {
 	tester.writeResponse("ORLY")
 	<-commander.Ready()
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
-		return commander.Query("*IDN?")
+		return commander.Query("*IDN?", 0)
 	})
 }
 
@@ -334,10 +340,10 @@ func TestReconnect(t *testing.T) {
 	tester.verifyConnectCount(1)
 	oldFc := tester.fc
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
-		return commander.Query("*IDN?")
+		return commander.Query("*IDN?", 0)
 	})
 	tester.fc.pendingError = errors.New("oops")
-	if _, err := commander.Query("*IDN?"); err == nil {
+	if _, err := commander.Query("*IDN?", 0); err == nil {
 		t.Errorf("Identify() didn't return the expected error")
 	}
 
@@ -352,7 +358,7 @@ func TestReconnect(t *testing.T) {
 		t.Errorf("The old connection was not closed")
 	}
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
-		return commander.Query("*IDN?")
+		return commander.Query("*IDN?", 0)
 	})
 }
 
@@ -364,12 +370,40 @@ func TestAltLineEnding(t *testing.T) {
 	<-commander.Ready()
 	commander.SetClock(tester)
 	tester.chat("*IDN?", "IZNAKURNOZH", func() (string, error) {
-		return commander.Query("*IDN?")
+		return commander.Query("*IDN?", 0)
 	})
 }
 
+func TestFixedSizeResponse(t *testing.T) {
+	tester := newCmdTester(t, samplePort)
+	commander := NewCommander(tester.connect, &PortSettings{Port: samplePort})
+	commander.Connect()
+	<-commander.Ready()
+	commander.SetClock(tester)
+
+	ch := make(chan string)
+	for i := 0; i < 3; i++ {
+		go func() {
+			if r, err := commander.Query("FOOBAR", 8); err != nil {
+				log.Panicf("failed to invoke command: %v", err)
+			} else {
+				ch <- r
+			}
+		}()
+		tester.expectCommand("FOOBAR")
+		tester.writeResponseWithoutLineEnding("WHATEVER")
+		tester.elapse(1 * time.Second)
+		tester.expectCommand("")
+		resp := <-ch
+		if resp != "WHATEVER" {
+			t.Errorf("bad command response: %q", resp)
+		}
+	}
+}
+
 type queueItem struct {
-	query, resp string
+	query, resp       string
+	fixedResponseSize int
 }
 
 type fakeCommander struct {
@@ -396,7 +430,7 @@ func (c *fakeCommander) Ready() <-chan struct{} {
 	return c.readyCh
 }
 
-func (c *fakeCommander) Query(query string) (string, error) {
+func (c *fakeCommander) Query(query string, fixedResponseSize int) (string, error) {
 	if !c.connected {
 		err := errors.New("fakeCommander: not connected")
 		c.t.Error(err)
@@ -414,6 +448,11 @@ func (c *fakeCommander) Query(query string) (string, error) {
 		c.t.Error(err)
 		return "", err
 	}
+	if item.fixedResponseSize != fixedResponseSize {
+		err := fmt.Errorf("fakeCommander: bad fixedResponseSize: %d instead of %d", fixedResponseSize, item.fixedResponseSize)
+		c.t.Error(err)
+		return "", err
+	}
 	return item.resp, nil
 }
 
@@ -421,12 +460,32 @@ func (c *fakeCommander) Close() {
 	c.connected = false
 }
 
-func (c *fakeCommander) enqueue(items ...string) {
-	if len(items)%2 > 0 {
-		c.t.Fatalf("fakeCommander: enqueue() accepts even number of arguments")
-	}
-	for i := 0; i < len(items); i += 2 {
-		c.queue = append(c.queue, queueItem{items[i], items[i+1]})
+func (c *fakeCommander) enqueue(items ...interface{}) {
+	for i := 0; i < len(items); {
+		qi := queueItem{}
+		var ok bool
+		qi.fixedResponseSize, ok = items[i].(int)
+		if ok {
+			i++
+		}
+		if i+1 >= len(items) {
+			c.t.Fatalf("bad enqueue call -- expected queueItem or query and response pair")
+		}
+		qi.query, ok = items[i].(string)
+		if !ok {
+			c.t.Fatalf("query must be a string but got %#v", items[i])
+		}
+		qi.resp, ok = items[i+1].(string)
+		if !ok {
+			c.t.Fatalf("response must be a string but got %#v", items[i+1])
+		}
+
+		if qi.fixedResponseSize != 0 && len(qi.resp) != qi.fixedResponseSize {
+			c.t.Fatalf("fixedResponseSize %d doesn't match the length of the response (%d): %q", qi.fixedResponseSize, len(qi.resp), qi.resp)
+		}
+
+		i += 2
+		c.queue = append(c.queue, qi)
 	}
 }
 

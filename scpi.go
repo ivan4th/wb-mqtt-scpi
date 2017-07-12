@@ -53,7 +53,7 @@ var _ Parameter = &scpiParameter{}
 func (p *scpiParameter) Name() string { return p.scpiName }
 
 func (p *scpiParameter) Query(c Commander, handler QueryHandler) error {
-	v, err := c.Query(p.scpiName + "?")
+	v, err := c.Query(p.scpiName+"?", 0)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (p *scpiParameter) Set(c Commander, name string, value interface{}) error {
 	} else {
 		q = fmt.Sprintf("%s %s; %s*OPC?", p.scpiName, value, p.prefix)
 	}
-	if r, err := c.Query(q); err != nil {
+	if r, err := c.Query(q, 0); err != nil {
 		return err
 	} else if r != "1" {
 		return fmt.Errorf("unexpected set response %q", r)
@@ -92,7 +92,7 @@ func newScpiProtocol(config *PortConfig) (Protocol, error) {
 
 func (p *scpiProtocol) Identify(c Commander) (r string, err error) {
 	for i := 0; i < scpiIdentifyNumAttempts; i++ {
-		r, err = c.Query("*IDN?")
+		r, err = c.Query("*IDN?", 0)
 		switch {
 		case err == ErrTimeout:
 			wbgo.Error.Print("Identify() timeout")

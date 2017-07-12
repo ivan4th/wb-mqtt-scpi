@@ -150,7 +150,7 @@ func (p *edwardsParameter) command(c Commander, cmdType, data string) ([]string,
 	} else if data != "" {
 		cmd += " " + data
 	}
-	resp, err := c.Query(cmd)
+	resp, err := c.Query(cmd, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +229,7 @@ func newEdwardsProtocol(config *PortConfig) (Protocol, error) {
 
 func (p *edwardsProtocol) Identify(c Commander) (r string, err error) {
 	for i := 0; i < edwardsIdentifyNumAttempts; i++ {
-		r, err = c.Query(edwardsIdCommand)
+		r, err = c.Query(edwardsIdCommand, 0)
 		switch {
 		case err == ErrTimeout:
 			wbgo.Error.Print("Identify() timeout")

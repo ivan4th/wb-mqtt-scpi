@@ -5,7 +5,7 @@ import "fmt"
 type Commander interface {
 	Connect()
 	Ready() <-chan struct{}
-	Query(query string) (string, error)
+	Query(query string, fixedResponseSize int) (string, error)
 	Close()
 }
 
