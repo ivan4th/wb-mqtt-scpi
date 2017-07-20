@@ -417,6 +417,9 @@ func (s *commanderStateBusy) CommandFailed(dc *DeviceCommander) commanderState {
 	if err := dc.c.Close(); err != nil {
 		wbgo.Error.Printf("Error closing the connection: %v", err)
 	}
+	for _, item := range s.queue[1:] {
+		item.errCh <- errors.New("previously queued command failed")
+	}
 	dc.c = nil
 	return &commanderStateReconnect{}
 }
