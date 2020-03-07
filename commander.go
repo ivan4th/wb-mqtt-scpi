@@ -15,6 +15,7 @@ const (
 	// FIXME: don't hardcode these values, use config
 	commanderTimeout = 5 * time.Second
 	reconnectDelay   = 3 * time.Second
+	drainTimeout     = 200 * time.Millisecond
 )
 
 type Connector func(port string) (io.ReadWriteCloser, error)
@@ -69,6 +70,26 @@ func (c connectionWrapper) readFixedSizeResponse(n int) (string, error) {
 		return "", fmt.Errorf("error reading fixed size response: %v", err)
 	}
 	return string(buf), nil
+}
+
+func (c connectionWrapper) drain(now time.Time) error {
+	for {
+		if err := c.SetDeadline(now.Add(drainTimeout)); err != nil {
+			wbgo.Debug.Printf("Query: SetDeadline error [drain]: %v", err)
+			return fmt.Errorf("SetDeadline error [drain]: %v", err)
+		}
+
+		switch _, err := c.ReadByte(); {
+		case err == nil:
+			continue
+		case err == ErrTimeout:
+			// no more bytes received
+			return nil
+		default:
+			wbgo.Debug.Printf("Query: drain error: %v", err)
+			return fmt.Errorf("drain error: %v", err)
+		}
+	}
 }
 
 func (c connectionWrapper) sendCommand(command, lineEnding string, now time.Time) error {
@@ -304,12 +325,19 @@ func (s *commanderStateBusy) send(dc *DeviceCommander) commanderState {
 		errCh := make(chan error)
 		respCh := make(chan string)
 		go func() {
-			command := dc.settings.Prefix + item.command
-			err := c.sendCommand(command, dc.lineEnding(), dc.clock.Now())
+			err := c.drain(dc.clock.Now())
 			if err != nil {
 				errCh <- err
 				return
 			}
+
+			command := dc.settings.Prefix + item.command
+			err = c.sendCommand(command, dc.lineEnding(), dc.clock.Now())
+			if err != nil {
+				errCh <- err
+				return
+			}
+
 			var resp string
 			if item.fixedResponseSize > 0 {
 				resp, err = c.readFixedSizeResponse(item.fixedResponseSize)
@@ -462,9 +490,14 @@ func (dc *DeviceCommander) stateAction(thunk func(state commanderState) commande
 
 func (dc *DeviceCommander) setup(c *connectionWrapper) error {
 	for _, si := range dc.settings.Setup {
+		if err := c.drain(dc.clock.Now()); err != nil {
+			return err
+		}
+
 		if err := c.sendCommand(dc.settings.Prefix+si.Command, dc.lineEnding(), dc.clock.Now()); err != nil {
 			return err
 		}
+
 		if si.Response != "" {
 			resp, err := c.readResponse(dc.lineEnding())
 			if err != nil {

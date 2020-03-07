@@ -1,6 +1,0 @@
-package: .
-import:
-- package: github.com/contactless/wbgo
-  subpackages:
-  - testutils
-  version: 711aa487d765470bc9d86b751347caec62f713d4
